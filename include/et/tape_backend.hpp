@@ -6,7 +6,7 @@
 namespace et {
 
 struct Tape {
-  enum Kind : uint8_t { KVar, KConst, KAdd, KSub, KMul, KDiv, KNeg, KSin, KExp, KLog, KSqrt, KTanh };
+  enum Kind : uint8_t { KVar, KConst, KAdd, KSub, KMul, KDiv, KNeg, KSin, KExp, KLog, KSqrt, KTanh, KCos };
 
   struct Node {
     Kind kind;
@@ -36,6 +36,7 @@ struct Tape {
         case KLog:  val[i] = std::log(val[n.a]); break;
         case KSqrt: val[i] = std::sqrt(val[n.a]); break;
         case KTanh: val[i] = std::tanh(val[n.a]); break;
+        case KCos:  val[i] = std::cos(val[n.a]); break;
       }
     }
     return val[output_id];
@@ -59,6 +60,7 @@ struct Tape {
         case KLog:  val[i] = std::log(val[n.a]); break;
         case KSqrt: val[i] = std::sqrt(val[n.a]); break;
         case KTanh: val[i] = std::tanh(val[n.a]); break;
+        case KCos:  val[i] = std::cos(val[n.a]); break;
       }
     }
     bar[output_id] = 1.0;
@@ -102,7 +104,9 @@ struct Tape {
           double t = std::tanh(val[n.a]);
           bar[n.a] += bar[i] * (1.0 - t * t);
           break; }
-
+        case KCos:
+          bar[n.a] -= bar[i] * std::sin(val[n.a]);
+          break;
       }
     }
     std::size_t arity = 0;
@@ -118,9 +122,7 @@ struct TapeBackend {
   using result_type = int;
   Tape tape;
 
-  explicit TapeBackend(std::size_t /*arity*/) {
-    tape.nodes.reserve(64);
-  }
+  explicit TapeBackend(std::size_t /*arity*/) { tape.nodes.reserve(64); }
 
   template <class T, std::size_t I>
   result_type emitVar(Var<T,I>) {
@@ -145,6 +147,7 @@ struct TapeBackend {
     else if constexpr (std::is_same<Op, LogOp>::value) n.kind = Tape::KLog;
     else if constexpr (std::is_same<Op, SqrtOp>::value) n.kind = Tape::KSqrt;
     else if constexpr (std::is_same<Op, TanhOp>::value) n.kind = Tape::KTanh;
+    else if constexpr (std::is_same<Op, CosOp>::value) n.kind = Tape::KCos;
     else static_assert(!std::is_same<Op,Op>::value, "Unary op not mapped to Tape");
     n.a = a;
     tape.nodes.push_back(n);

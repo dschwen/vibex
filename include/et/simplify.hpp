@@ -43,8 +43,17 @@ constexpr auto simplify(const Apply<SinOp, A>& node) {
     return Apply<SinOp, decltype(a)>(std::move(a));
   }
 }
-
-
+template <class A>
+constexpr auto simplify(const Apply<CosOp, A>& node) {
+  auto a = simplify(node.template child<0>());
+  if constexpr (is_const_node_v<decltype(a)>) {
+    using T = typename decltype(a)::value_type;
+    using std::cos;
+    return Const<T>{ cos(const_value<decltype(a)>::get(a)) };
+  } else {
+    return Apply<CosOp, decltype(a)>(std::move(a));
+  }
+}
 template <class A>
 constexpr auto simplify(const Apply<ExpOp, A>& node) {
   auto a = simplify(node.template child<0>());
@@ -171,8 +180,6 @@ constexpr auto simplify(const Apply<Op, L, R>& node) {
 }
 template <class Op, class A>
 constexpr auto simplify(const Apply<Op, A>& node) {
-  if constexpr (std::is_same<Op, NegOp>::value) return simplify(Apply<NegOp, A>(node.template child<0>()));
-  if constexpr (std::is_same<Op, SinOp>::value) return simplify(Apply<SinOp, A>(node.template child<0>()));
   auto a = simplify(node.template child<0>());
   return Apply<Op, decltype(a)>(std::move(a));
 }

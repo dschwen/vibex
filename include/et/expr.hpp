@@ -112,8 +112,17 @@ struct SinOp {
   template <std::size_t I, class X>
   static auto d(const X& x);
 };
-
-
+struct CosOp {
+  static constexpr std::size_t arity = 1;
+  template <class A> static constexpr auto eval(A&& a)
+  -> decltype(cos(std::forward<A>(a))) { using std::cos; return cos(std::forward<A>(a)); }
+  template <std::size_t I, class X>
+  static auto d(const X& x) {
+    auto dx = diff(x, std::integral_constant<std::size_t,I>{});
+    return Apply<MulOp, Apply<NegOp, Apply<SinOp, X>>, decltype(dx)>
+           ( Apply<NegOp, Apply<SinOp, X>>( Apply<SinOp, X>(x) ), std::move(dx) );
+  }
+};
 struct ExpOp {
   static constexpr std::size_t arity = 1;
   template <class A> static constexpr auto eval(A&& a)
@@ -131,7 +140,6 @@ struct LogOp {
   template <std::size_t I, class X>
   static auto d(const X& x) {
     auto dx = diff(x, std::integral_constant<std::size_t,I>{});
-    // d(log x) = dx / x
     return Apply<DivOp, decltype(dx), X>( std::move(dx), x );
   }
 };
@@ -142,8 +150,7 @@ struct SqrtOp {
   template <std::size_t I, class X>
   static auto d(const X& x) {
     auto dx = diff(x, std::integral_constant<std::size_t,I>{});
-    // d(sqrt x) = dx / (2*sqrt(x))
-    auto two = lit(typename value_type_of_t<X>(2));
+    using TX = value_type_of_t<X>; auto two = lit(TX(2));
     return Apply<DivOp, decltype(dx), Apply<MulOp, decltype(two), Apply<SqrtOp, X>>>
            ( std::move(dx), Apply<MulOp, decltype(two), Apply<SqrtOp, X>>( two, Apply<SqrtOp, X>(x) ) );
   }
@@ -155,14 +162,14 @@ struct TanhOp {
   template <std::size_t I, class X>
   static auto d(const X& x) {
     auto dx = diff(x, std::integral_constant<std::size_t,I>{});
-    // d(tanh x) = (1 - tanh(x)^2) * dx
-    auto one = lit(typename value_type_of_t<X>(1));
+    using TX = value_type_of_t<X>; auto one = lit(TX(1));
     auto t = Apply<TanhOp, X>(x);
     auto t2 = Apply<MulOp, decltype(t), decltype(t)>(t, t);
     auto factor = Apply<SubOp, decltype(one), decltype(t2)>(one, t2);
     return Apply<MulOp, decltype(factor), decltype(dx)>( std::move(factor), std::move(dx) );
   }
 };
+
 // Operator sugar
 template <class L, class R> constexpr auto operator+(L l, R r) { return Apply<AddOp, L, R>(std::move(l), std::move(r)); }
 template <class L, class R> constexpr auto operator-(L l, R r) { return Apply<SubOp, L, R>(std::move(l), std::move(r)); }
@@ -170,8 +177,7 @@ template <class L, class R> constexpr auto operator*(L l, R r) { return Apply<Mu
 template <class L, class R> constexpr auto operator/(L l, R r) { return Apply<DivOp, L, R>(std::move(l), std::move(r)); }
 template <class A> constexpr auto operator-(A a) { return Apply<NegOp, A>(std::move(a)); }
 template <class A> constexpr auto sin(A a) { return Apply<SinOp, A>(std::move(a)); }
-
-
+template <class A> constexpr auto cos(A a) { return Apply<CosOp, A>(std::move(a)); }
 template <class A> constexpr auto exp(A a)  { return Apply<ExpOp,  A>(std::move(a)); }
 template <class A> constexpr auto log(A a)  { return Apply<LogOp,  A>(std::move(a)); }
 template <class A> constexpr auto sqrt(A a) { return Apply<SqrtOp, A>(std::move(a)); }
@@ -248,12 +254,6 @@ inline auto NegOp::d(const X& x) {
 }
 template <std::size_t I, class X>
 inline auto SinOp::d(const X& x) {
-  struct CosOp {
-    static constexpr std::size_t arity = 1;
-    template <class A> static constexpr auto eval(A&& a)
-    -> decltype(cos(std::forward<A>(a))) { using std::cos; return cos(std::forward<A>(a)); }
-    template <std::size_t, class> static void d(); // not used directly
-  };
   auto dx = diff(x, std::integral_constant<std::size_t,I>{});
   return Apply<MulOp, Apply<CosOp, X>, decltype(dx)>( Apply<CosOp, X>(x), std::move(dx) );
 }

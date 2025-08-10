@@ -11,14 +11,10 @@ int main() {
   using namespace et;
   auto [x,y,z] = Vars<double,3>();
 
-  // Build a slightly redundant expression to showcase CSE:
-  // f = exp(x) * tanh(y) + log(z) + exp(x) * tanh(y) + sqrt(z*z)
   auto f = exp(x)*tanh(y) + log(z) + exp(x)*tanh(y) + sqrt(z*z);
 
-  // Simplify derivative a bit
   auto dfdx = simplify( diff(f, x) );
 
-  // Tape backend via CSE compile (will share exp(x)*tanh(y))
   TapeBackend TB(3);
   int out_id = compile_cse(f, TB);
   TB.tape.output_id = out_id;

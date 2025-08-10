@@ -8,7 +8,6 @@ int main() {
   using namespace et;
   auto [x,y,z] = Vars<double,3>();
 
-  // Repeated subexpressions to stress the memo
   auto g = exp(x) * tanh(y);
   auto f = g + log(z) + g + sqrt(z*z) + g;
 

@@ -7,11 +7,9 @@ int main() {
   using namespace et;
   auto [x,y,z] = Vars<double,3>();
   auto f = sin(x)*y + z*z;
-
   TorchJITBackend JB(3);
   auto out = compile(f, JB);
   JB.g.registerOutput(out);
-
   std::cout << "Torch JIT graph:\n";
   JB.g.print(std::cout);
 #else

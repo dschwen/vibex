@@ -1,10 +1,8 @@
 #pragma once
 
-// Optional TorchScript backend.
-// Compile this file only if ET_WITH_TORCH is defined and libtorch is available.
-
 #ifdef ET_WITH_TORCH
   #include <torch/script.h>
+  #include <vector>
 #endif
 
 namespace et {
@@ -22,9 +20,7 @@ struct TorchJITBackend {
   }
 
   template <class T, std::size_t I>
-  result_type emitVar(Var<T,I>) {
-    return inputs[I];
-  }
+  result_type emitVar(Var<T,I>) { return inputs[I]; }
 
   template <class T>
   result_type emitConst(Const<T> c) {
@@ -38,48 +34,35 @@ struct TorchJITBackend {
 
   template <class Op>
   result_type emitApply(Op, result_type a) {
-    if constexpr (std::is_same<Op, NegOp>::value) {
-      auto n = g.create(c10::Symbol::fromQualString("aten::neg"), {a});
+    auto mk = [&](const char* q, result_type x){
+      auto n = g.create(c10::Symbol::fromQualString(q), {x});
       g.insertNode(n); return n->output();
-    } else if constexpr (std::is_same<Op, SinOp>::value) {
-      auto n = g.create(c10::Symbol::fromQualString("aten::sin"), {a});
-      g.insertNode(n); return n->output();
-    } else if constexpr (std::is_same<Op, ExpOp>::value) {
-      auto n = g.create(c10::Symbol::fromQualString("aten::exp"), {a});
-      g.insertNode(n); return n->output();
-    } else if constexpr (std::is_same<Op, LogOp>::value) {
-      auto n = g.create(c10::Symbol::fromQualString("aten::log"), {a});
-      g.insertNode(n); return n->output();
-    } else if constexpr (std::is_same<Op, SqrtOp>::value) {
-      auto n = g.create(c10::Symbol::fromQualString("aten::sqrt"), {a});
-      g.insertNode(n); return n->output();
-    } else if constexpr (std::is_same<Op, TanhOp>::value) {
-      auto n = g.create(c10::Symbol::fromQualString("aten::tanh"), {a});
-      g.insertNode(n); return n->output();
-      auto n = g.create(c10::Symbol::fromQualString("aten::sin"), {a});
-      g.insertNode(n); return n->output();
-    } else {
-      static_assert(!std::is_same<Op,Op>::value, "Unary op not mapped to Torch JIT");
-    }
+    };
+    if constexpr (std::is_same<Op, NegOp>::value)  return mk("aten::neg", a);
+    else if constexpr (std::is_same<Op, SinOp>::value)  return mk("aten::sin", a);
+    else if constexpr (std::is_same<Op, CosOp>::value)  return mk("aten::cos", a);
+    else if constexpr (std::is_same<Op, ExpOp>::value)  return mk("aten::exp", a);
+    else if constexpr (std::is_same<Op, LogOp>::value)  return mk("aten::log", a);
+    else if constexpr (std::is_same<Op, SqrtOp>::value) return mk("aten::sqrt", a);
+    else if constexpr (std::is_same<Op, TanhOp>::value) return mk("aten::tanh", a);
+    else static_assert(!std::is_same<Op,Op>::value, "Unary op not mapped to Torch JIT");
   }
 
   template <class Op>
   result_type emitApply(Op, result_type a, result_type b) {
-    c10::Symbol sym;
-    if constexpr      (std::is_same<Op, AddOp>::value) sym = c10::Symbol::fromQualString("aten::add");
-    else if constexpr (std::is_same<Op, SubOp>::value) sym = c10::Symbol::fromQualString("aten::sub");
-    else if constexpr (std::is_same<Op, MulOp>::value) sym = c10::Symbol::fromQualString("aten::mul");
-    else if constexpr (std::is_same<Op, DivOp>::value) sym = c10::Symbol::fromQualString("aten::div");
+    auto mk = [&](const char* q, result_type x, result_type y){
+      auto n = g.create(c10::Symbol::fromQualString(q), {x,y});
+      g.insertNode(n); return n->output();
+    };
+    if constexpr      (std::is_same<Op, AddOp>::value) return mk("aten::add", a, b);
+    else if constexpr (std::is_same<Op, SubOp>::value) return mk("aten::sub", a, b);
+    else if constexpr (std::is_same<Op, MulOp>::value) return mk("aten::mul", a, b);
+    else if constexpr (std::is_same<Op, DivOp>::value) return mk("aten::div", a, b);
     else static_assert(!std::is_same<Op,Op>::value, "Binary op not mapped to Torch JIT");
-
-    auto n = g.create(sym, {a, b});
-    g.insertNode(n);
-    return n->output();
   }
 };
 #else
-// Stub to help users who include this header without ET_WITH_TORCH
-struct TorchJITBackend; // no definition
+struct TorchJITBackend; // stub
 #endif
 
 } // namespace et
