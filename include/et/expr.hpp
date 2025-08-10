@@ -117,57 +117,35 @@ struct CosOp {
   template <class A> static constexpr auto eval(A&& a)
   -> decltype(cos(std::forward<A>(a))) { using std::cos; return cos(std::forward<A>(a)); }
   template <std::size_t I, class X>
-  static auto d(const X& x) {
-    auto dx = diff(x, std::integral_constant<std::size_t,I>{});
-    return Apply<MulOp, Apply<NegOp, Apply<SinOp, X>>, decltype(dx)>
-           ( Apply<NegOp, Apply<SinOp, X>>( Apply<SinOp, X>(x) ), std::move(dx) );
-  }
+  static auto d(const X& x);
 };
 struct ExpOp {
   static constexpr std::size_t arity = 1;
   template <class A> static constexpr auto eval(A&& a)
   -> decltype(exp(std::forward<A>(a))) { using std::exp; return exp(std::forward<A>(a)); }
   template <std::size_t I, class X>
-  static auto d(const X& x) {
-    auto dx = diff(x, std::integral_constant<std::size_t,I>{});
-    return Apply<MulOp, Apply<ExpOp, X>, decltype(dx)>( Apply<ExpOp, X>(x), std::move(dx) );
-  }
+  static auto d(const X& x);
 };
 struct LogOp {
   static constexpr std::size_t arity = 1;
   template <class A> static constexpr auto eval(A&& a)
   -> decltype(log(std::forward<A>(a))) { using std::log; return log(std::forward<A>(a)); }
   template <std::size_t I, class X>
-  static auto d(const X& x) {
-    auto dx = diff(x, std::integral_constant<std::size_t,I>{});
-    return Apply<DivOp, decltype(dx), X>( std::move(dx), x );
-  }
+  static auto d(const X& x);
 };
 struct SqrtOp {
   static constexpr std::size_t arity = 1;
   template <class A> static constexpr auto eval(A&& a)
   -> decltype(sqrt(std::forward<A>(a))) { using std::sqrt; return sqrt(std::forward<A>(a)); }
   template <std::size_t I, class X>
-  static auto d(const X& x) {
-    auto dx = diff(x, std::integral_constant<std::size_t,I>{});
-    using TX = value_type_of_t<X>; auto two = lit(TX(2));
-    return Apply<DivOp, decltype(dx), Apply<MulOp, decltype(two), Apply<SqrtOp, X>>>
-           ( std::move(dx), Apply<MulOp, decltype(two), Apply<SqrtOp, X>>( two, Apply<SqrtOp, X>(x) ) );
-  }
+  static auto d(const X& x);
 };
 struct TanhOp {
   static constexpr std::size_t arity = 1;
   template <class A> static constexpr auto eval(A&& a)
   -> decltype(tanh(std::forward<A>(a))) { using std::tanh; return tanh(std::forward<A>(a)); }
   template <std::size_t I, class X>
-  static auto d(const X& x) {
-    auto dx = diff(x, std::integral_constant<std::size_t,I>{});
-    using TX = value_type_of_t<X>; auto one = lit(TX(1));
-    auto t = Apply<TanhOp, X>(x);
-    auto t2 = Apply<MulOp, decltype(t), decltype(t)>(t, t);
-    auto factor = Apply<SubOp, decltype(one), decltype(t2)>(one, t2);
-    return Apply<MulOp, decltype(factor), decltype(dx)>( std::move(factor), std::move(dx) );
-  }
+  static auto d(const X& x);
 };
 
 // Operator sugar
@@ -252,10 +230,69 @@ inline auto NegOp::d(const X& x) {
   return Apply<NegOp, decltype(diff(x, std::integral_constant<std::size_t,I>{}))>
          ( diff(x, std::integral_constant<std::size_t,I>{}) );
 }
+
+
+
 template <std::size_t I, class X>
 inline auto SinOp::d(const X& x) {
+  // d/dx sin(x) = cos(x) * dx
   auto dx = diff(x, std::integral_constant<std::size_t,I>{});
-  return Apply<MulOp, Apply<CosOp, X>, decltype(dx)>( Apply<CosOp, X>(x), std::move(dx) );
+  return Apply<MulOp, Apply<CosOp, X>, decltype(dx)>(
+      Apply<CosOp, X>(x), std::move(dx));
+}
+
+template <std::size_t I, class X>
+inline auto CosOp::d(const X& x) {
+  // d/dx cos(x) = -sin(x) * dx
+  auto dx = diff(x, std::integral_constant<std::size_t,I>{});
+  return Apply<MulOp,
+               Apply<NegOp, Apply<SinOp, X>>,
+               decltype(dx)>(
+      Apply<NegOp, Apply<SinOp, X>>( Apply<SinOp, X>(x) ),
+      std::move(dx));
+}
+
+template <std::size_t I, class X>
+inline auto ExpOp::d(const X& x) {
+  // d/dx exp(x) = exp(x) * dx
+  auto dx = diff(x, std::integral_constant<std::size_t,I>{});
+  return Apply<MulOp, Apply<ExpOp, X>, decltype(dx)>(
+      Apply<ExpOp, X>(x), std::move(dx));
+}
+
+template <std::size_t I, class X>
+inline auto LogOp::d(const X& x) {
+  // d/dx log(x) = dx / x
+  auto dx = diff(x, std::integral_constant<std::size_t,I>{});
+  return Apply<DivOp, decltype(dx), X>(
+      std::move(dx), x);
+}
+
+template <std::size_t I, class X>
+inline auto SqrtOp::d(const X& x) {
+  // d/dx sqrt(x) = dx / (2 * sqrt(x))
+  auto dx = diff(x, std::integral_constant<std::size_t,I>{});
+  using TX = value_type_of_t<X>;
+  auto two = lit(TX(2));
+  return Apply<DivOp,
+               decltype(dx),
+               Apply<MulOp, decltype(two), Apply<SqrtOp, X>>>(
+      std::move(dx),
+      Apply<MulOp, decltype(two), Apply<SqrtOp, X>>(
+          two, Apply<SqrtOp, X>(x)));
+}
+
+template <std::size_t I, class X>
+inline auto TanhOp::d(const X& x) {
+  // d/dx tanh(x) = (1 - tanh(x)^2) * dx
+  auto dx = diff(x, std::integral_constant<std::size_t,I>{});
+  using TX = value_type_of_t<X>;
+  auto one = lit(TX(1));
+  auto t = Apply<TanhOp, X>(x);
+  auto t2 = Apply<MulOp, decltype(t), decltype(t)>(t, t);
+  auto factor = Apply<SubOp, decltype(one), decltype(t2)>(one, t2);
+  return Apply<MulOp, decltype(factor), decltype(dx)>(
+      std::move(factor), std::move(dx));
 }
 
 //===========================
@@ -306,13 +343,16 @@ constexpr auto Vars() {
 template <class V> struct var_index_of;                    // primary
 template <class T, std::size_t I>
 struct var_index_of<Var<T,I>> : std::integral_constant<std::size_t, I> {};
+
 template <class V>
 inline constexpr std::size_t var_index_of_v = var_index_of<std::decay_t<V>>::value;
 
+template <std::size_t I>
+struct var_index_of<std::integral_constant<std::size_t, I>>
+    : std::integral_constant<std::size_t, I> {};
+
 template <class Expr, class V>
-constexpr auto diff(const Expr& e, const V&)
--> decltype( diff(e, std::integral_constant<std::size_t, var_index_of_v<V>>{}) )
-{
+constexpr auto diff(const Expr& e, const V&) {
   return diff(e, std::integral_constant<std::size_t, var_index_of_v<V>>{});
 }
 

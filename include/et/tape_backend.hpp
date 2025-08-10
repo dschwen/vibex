@@ -2,6 +2,9 @@
 #include <vector>
 #include <cmath>
 #include <cassert>
+#include <cstdint>
+#include <algorithm>
+#include <type_traits>
 
 namespace et {
 

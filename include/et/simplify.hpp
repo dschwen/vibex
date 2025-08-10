@@ -99,34 +99,27 @@ constexpr auto simplify(const Apply<TanhOp, A>& node) {
   }
 }
 
-// binary helpers
+// ---- binary ops: only fold when BOTH sides are Const; otherwise rebuild
 template <class L, class R>
 constexpr auto simplify_add(L&& l, R&& r) {
   auto ls = simplify(l); auto rs = simplify(r);
   if constexpr (is_const_node_v<decltype(ls)> && is_const_node_v<decltype(rs)>) {
     using TL = typename decltype(ls)::value_type;
     return Const<TL>{ const_value<decltype(ls)>::get(ls) + const_value<decltype(rs)>::get(rs) };
-  } else if constexpr (is_const_node_v<decltype(ls)>) {
-    using TL = typename decltype(ls)::value_type;
-    if (const_value<decltype(ls)>::get(ls) == TL(0)) return rs;
-  } else if constexpr (is_const_node_v<decltype(rs)>) {
-    using TR = typename decltype(rs)::value_type;
-    if (const_value<decltype(rs)>::get(rs) == TR(0)) return ls;
   }
   return Apply<AddOp, decltype(ls), decltype(rs)>(std::move(ls), std::move(rs));
 }
+
 template <class L, class R>
 constexpr auto simplify_sub(L&& l, R&& r) {
   auto ls = simplify(l); auto rs = simplify(r);
   if constexpr (is_const_node_v<decltype(ls)> && is_const_node_v<decltype(rs)>) {
     using TL = typename decltype(ls)::value_type;
     return Const<TL>{ const_value<decltype(ls)>::get(ls) - const_value<decltype(rs)>::get(rs) };
-  } else if constexpr (is_const_node_v<decltype(rs)>) {
-    using TR = typename decltype(rs)::value_type;
-    if (const_value<decltype(rs)>::get(rs) == TR(0)) return ls;
   }
   return Apply<SubOp, decltype(ls), decltype(rs)>(std::move(ls), std::move(rs));
 }
+
 template <class L, class R>
 constexpr auto simplify_mul(L&& l, R&& r) {
   auto ls = simplify(l); auto rs = simplify(r);
@@ -134,35 +127,15 @@ constexpr auto simplify_mul(L&& l, R&& r) {
     using TL = typename decltype(ls)::value_type;
     return Const<TL>{ const_value<decltype(ls)>::get(ls) * const_value<decltype(rs)>::get(rs) };
   }
-  if constexpr (is_const_node_v<decltype(ls)>) {
-    using TL = typename decltype(ls)::value_type;
-    if (const_value<decltype(ls)>::get(ls) == TL(0))
-      return make_same_const<typename decltype(rs)::value_type>(0);
-    if (const_value<decltype(ls)>::get(ls) == TL(1)) return rs;
-  }
-  if constexpr (is_const_node_v<decltype(rs)>) {
-    using TR = typename decltype(rs)::value_type;
-    if (const_value<decltype(rs)>::get(rs) == TR(0))
-      return make_same_const<typename decltype(ls)::value_type>(0);
-    if (const_value<decltype(rs)>::get(rs) == TR(1)) return ls;
-  }
   return Apply<MulOp, decltype(ls), decltype(rs)>(std::move(ls), std::move(rs));
 }
+
 template <class L, class R>
 constexpr auto simplify_div(L&& l, R&& r) {
   auto ls = simplify(l); auto rs = simplify(r);
   if constexpr (is_const_node_v<decltype(ls)> && is_const_node_v<decltype(rs)>) {
     using TL = typename decltype(ls)::value_type;
     return Const<TL>{ const_value<decltype(ls)>::get(ls) / const_value<decltype(rs)>::get(rs) };
-  }
-  if constexpr (is_const_node_v<decltype(rs)>) {
-    using TR = typename decltype(rs)::value_type;
-    if (const_value<decltype(rs)>::get(rs) == TR(1)) return ls;
-  }
-  if constexpr (is_const_node_v<decltype(ls)>) {
-    using TL = typename decltype(ls)::value_type;
-    if (const_value<decltype(ls)>::get(ls) == TL(0))
-      return make_same_const<typename decltype(rs)::value_type>(0);
   }
   return Apply<DivOp, decltype(ls), decltype(rs)>(std::move(ls), std::move(rs));
 }

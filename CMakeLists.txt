@@ -6,6 +6,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(ET_WITH_TORCH "Build TorchScript backend example" OFF)
 
+# Increase maximum template instantiation depth
+add_compile_options(-ftemplate-depth=12000)
+
 add_library(et INTERFACE)
 target_include_directories(et INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
