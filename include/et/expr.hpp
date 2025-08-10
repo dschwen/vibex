@@ -67,6 +67,15 @@ struct Apply {
   template <std::size_t I> constexpr const auto& child() const { return std::get<I>(ch); }
 };
 
+// Node detection
+template <class T> struct is_node : std::false_type {};
+template <class T, std::size_t I> struct is_node<Var<T,I>> : std::true_type {};
+template <class T> struct is_node<Const<T>> : std::true_type {};
+template <class Op, class... Ch> struct is_node<Apply<Op,Ch...>> : std::true_type {};
+
+template <class T>
+using is_node_t = is_node<std::decay_t<T>>;
+
 //===========================
 // Ops (tags) and sugar
 //===========================
@@ -149,17 +158,46 @@ struct TanhOp {
 };
 
 // Operator sugar
-template <class L, class R> constexpr auto operator+(L l, R r) { return Apply<AddOp, L, R>(std::move(l), std::move(r)); }
-template <class L, class R> constexpr auto operator-(L l, R r) { return Apply<SubOp, L, R>(std::move(l), std::move(r)); }
-template <class L, class R> constexpr auto operator*(L l, R r) { return Apply<MulOp, L, R>(std::move(l), std::move(r)); }
-template <class L, class R> constexpr auto operator/(L l, R r) { return Apply<DivOp, L, R>(std::move(l), std::move(r)); }
-template <class A> constexpr auto operator-(A a) { return Apply<NegOp, A>(std::move(a)); }
-template <class A> constexpr auto sin(A a) { return Apply<SinOp, A>(std::move(a)); }
-template <class A> constexpr auto cos(A a) { return Apply<CosOp, A>(std::move(a)); }
-template <class A> constexpr auto exp(A a)  { return Apply<ExpOp,  A>(std::move(a)); }
-template <class A> constexpr auto log(A a)  { return Apply<LogOp,  A>(std::move(a)); }
-template <class A> constexpr auto sqrt(A a) { return Apply<SqrtOp, A>(std::move(a)); }
-template <class A> constexpr auto tanh(A a) { return Apply<TanhOp, A>(std::move(a)); }
+// Binary operators (only when at least one side is an ET node)
+template <class L, class R,
+          std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
+constexpr auto operator+(L l, R r) { return Apply<AddOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
+
+template <class L, class R,
+          std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
+constexpr auto operator-(L l, R r) { return Apply<SubOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
+
+template <class L, class R,
+          std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
+constexpr auto operator*(L l, R r) { return Apply<MulOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
+
+template <class L, class R,
+          std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
+constexpr auto operator/(L l, R r) { return Apply<DivOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
+
+// Unary minus (only for ET nodes)
+template <class A,
+          std::enable_if_t<is_node_t<A>::value, int> = 0>
+constexpr auto operator-(A a) { return Apply<NegOp, std::decay_t<A>>(std::move(a)); }
+
+// ET math wrappers (only for ET nodes) — avoids shadowing std::sin/cos for scalars
+template <class A, std::enable_if_t<is_node_t<A>::value, int> = 0>
+constexpr auto sin(A a) { return Apply<SinOp, std::decay_t<A>>(std::move(a)); }
+
+template <class A, std::enable_if_t<is_node_t<A>::value, int> = 0>
+constexpr auto cos(A a) { return Apply<CosOp, std::decay_t<A>>(std::move(a)); }
+
+template <class A, std::enable_if_t<is_node_t<A>::value, int> = 0>
+constexpr auto exp(A a) { return Apply<ExpOp, std::decay_t<A>>(std::move(a)); }
+
+template <class A, std::enable_if_t<is_node_t<A>::value, int> = 0>
+constexpr auto log(A a) { return Apply<LogOp, std::decay_t<A>>(std::move(a)); }
+
+template <class A, std::enable_if_t<is_node_t<A>::value, int> = 0>
+constexpr auto sqrt(A a) { return Apply<SqrtOp, std::decay_t<A>>(std::move(a)); }
+
+template <class A, std::enable_if_t<is_node_t<A>::value, int> = 0>
+constexpr auto tanh(A a) { return Apply<TanhOp, std::decay_t<A>>(std::move(a)); }
 
 //===========================
 // Automatic differentiation

@@ -4,15 +4,19 @@
 #include <vector>
 #include <string>
 #include <sstream>
+#include <tuple>      // std::apply
+#include <functional> // std::hash<long double>
 
 namespace et {
 
+// --- small hashing utils -------------------------------------------------
 static inline std::uint64_t rotl(std::uint64_t x, int r) { return (x << r) | (x >> (64 - r)); }
 static inline std::uint64_t mix(std::uint64_t a, std::uint64_t b) {
   a ^= b + 0x9e3779b97f4a7c15ULL + (a<<6) + (a>>2);
   return a;
 }
 
+// --- op tag ids ----------------------------------------------------------
 template<class Op> struct op_id { static constexpr std::uint64_t value = 0; };
 template<> struct op_id<AddOp>  { static constexpr std::uint64_t value = 0x11; };
 template<> struct op_id<SubOp>  { static constexpr std::uint64_t value = 0x12; };
@@ -26,6 +30,7 @@ template<> struct op_id<LogOp>  { static constexpr std::uint64_t value = 0x33; }
 template<> struct op_id<SqrtOp> { static constexpr std::uint64_t value = 0x34; };
 template<> struct op_id<TanhOp> { static constexpr std::uint64_t value = 0x35; };
 
+// --- structural key for collision checks --------------------------------
 template <class Expr> inline void to_key_stream(std::ostream& os, const Expr&);
 template <class T, std::size_t I>
 inline void to_key_stream(std::ostream& os, const Var<T,I>&) { os << "Var<" << I << ">"; }
@@ -43,6 +48,7 @@ inline void to_key_stream(std::ostream& os, const Apply<Op,Ch...>& a) {
 template <class Expr>
 inline std::string structural_key(const Expr& e) { std::ostringstream oss; to_key_stream(oss, e); return oss.str(); }
 
+// --- structural hash -----------------------------------------------------
 template <class T, std::size_t I>
 inline std::uint64_t shash(const Var<T,I>&) {
   std::uint64_t h = 0x76543210ULL;
@@ -65,6 +71,7 @@ inline std::uint64_t shash(const Apply<Op,Ch...>& a) {
   return h ^ 0xBEEF1000ULL;
 }
 
+// --- memo table with lazy collision resolution ---------------------------
 template <class Backend>
 struct HashMemo {
   struct Entry { std::string skey; typename Backend::result_type value; };
@@ -75,7 +82,9 @@ struct HashMemo {
     auto h = shash(e);
     auto it = map.find(h);
     if (it == map.end()) return false;
+    // fast-path: single entry without materialized key
     if (it->second.size() == 1 && it->second[0].skey.empty()) { out = it->second[0].value; return true; }
+    // otherwise, compare structural keys
     auto key = structural_key(e);
     for (auto& ent : it->second) if (!ent.skey.empty() && ent.skey == key) { out = ent.value; return true; }
     return false;
@@ -94,30 +103,36 @@ struct HashMemo {
   }
 };
 
+// --- non-local helper (fix for GCC) --------------------------------------
+template <class Backend>
+struct HashCSEHelper {
+  Backend& b;
+  HashMemo<Backend>& memo;
+
+  template <class X>
+  typename Backend::result_type operator()(const X& x) {
+    typename Backend::result_type out;
+    if (memo.find(x, out)) return out;
+    auto v = compile_impl(x);
+    memo.insert(x, v);
+    return v;
+  }
+
+  template <class T, std::size_t I>
+  typename Backend::result_type compile_impl(const Var<T,I>& v) { return b.template emitVar<T,I>(v); }
+  template <class T>
+  typename Backend::result_type compile_impl(const Const<T>& c) { return b.template emitConst<T>(c); }
+  template <class Op, class... Ch>
+  typename Backend::result_type compile_impl(const Apply<Op,Ch...>& a) {
+    return std::apply([&](const auto&... c){ return b.emitApply(Op{}, (*this)(c)...); }, a.ch);
+  }
+};
+
+// --- API -----------------------------------------------------------------
 template <class Backend, class Expr>
 auto compile_hash_cse(const Expr& e, Backend& b) -> typename Backend::result_type {
   HashMemo<Backend> memo;
-  struct Helper {
-    Backend& b;
-    HashMemo<Backend>& memo;
-    template <class X>
-    typename Backend::result_type operator()(const X& x) {
-      typename Backend::result_type out;
-      if (memo.find(x, out)) return out;
-      auto v = compile_impl(x);
-      memo.insert(x, v);
-      return v;
-    }
-    template <class T, std::size_t I>
-    typename Backend::result_type compile_impl(const Var<T,I>& v) { return b.template emitVar<T,I>(v); }
-    template <class T>
-    typename Backend::result_type compile_impl(const Const<T>& c) { return b.template emitConst<T>(c); }
-    template <class Op, class... Ch>
-    typename Backend::result_type compile_impl(const Apply<Op,Ch...>& a) {
-      return std::apply([&](const auto&... c){ return b.emitApply(Op{}, (*this)(c)...); }, a.ch);
-    }
-  };
-  Helper H{b, memo};
+  HashCSEHelper<Backend> H{b, memo};
   return H(e);
 }
 
