@@ -4,6 +4,18 @@ project(et LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Enable coverage flags early so all targets pick them up
+option(ET_ENABLE_COVERAGE "Enable GCov/LCov coverage flags and target" OFF)
+if(ET_ENABLE_COVERAGE)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    message(STATUS "Enabling coverage flags (early)")
+    add_compile_options(-O0 -g --coverage)
+    add_link_options(--coverage)
+  else()
+    message(WARNING "Coverage requested but unsupported compiler: ${CMAKE_CXX_COMPILER_ID}")
+  endif()
+endif()
+
 option(ET_WITH_TORCH "Enable TorchScript integrations" OFF)
 option(ET_BUILD_TORCH_EXAMPLES "Build Torch-based example binaries" OFF)
 option(ET_BUILD_TORCH_TESTS "Build Torch-based tests" OFF)
@@ -61,6 +73,10 @@ if(BUILD_TESTING)
   target_link_libraries(et_tests_binary PRIVATE et)
   add_test(NAME et_binary COMMAND et_tests_binary)
 
+  add_executable(et_tests_simplify tests/test_simplify.cpp)
+  target_link_libraries(et_tests_simplify PRIVATE et)
+  add_test(NAME et_simplify COMMAND et_tests_simplify)
+
   if(ET_WITH_TORCH AND ET_BUILD_TORCH_TESTS)
     find_package(Torch REQUIRED)
     add_executable(et_torch_tests tests/test_torch.cpp)
@@ -68,5 +84,49 @@ if(BUILD_TESTING)
     target_compile_definitions(et_torch_tests PRIVATE ET_WITH_TORCH)
     target_compile_features(et_torch_tests PRIVATE cxx_std_17)
     add_test(NAME et_torch COMMAND et_torch_tests)
+  endif()
+endif()
+
+# ------------------------
+# Coverage target (gcovr)
+# ------------------------
+if(ET_ENABLE_COVERAGE)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    message(STATUS "Enabling coverage flags")
+    add_compile_options(-O0 -g --coverage)
+    add_link_options(--coverage)
+  else()
+    message(WARNING "Coverage requested but unsupported compiler: ${CMAKE_CXX_COMPILER_ID}")
+  endif()
+
+  # Try native gcovr binary first; fallback to `python3 -m gcovr` if available
+  find_program(GCOVR_BIN gcovr)
+  set(GCOVR_CMD)
+  if(GCOVR_BIN)
+    set(GCOVR_CMD ${GCOVR_BIN})
+  else()
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+      set(GCOVR_CMD ${Python3_EXECUTABLE} -m gcovr)
+    endif()
+  endif()
+
+  if(GCOVR_CMD)
+    message(STATUS "Using gcovr command: ${GCOVR_CMD}")
+    add_custom_target(coverage
+      COMMAND ${CMAKE_CTEST_COMMAND} --test-dir ${CMAKE_BINARY_DIR} -V
+      COMMAND ${CMAKE_COMMAND} -E make_directory coverage
+      COMMAND ${GCOVR_CMD} -r ${CMAKE_SOURCE_DIR}
+              --exclude '.*tests/.*' --exclude '.*examples/.*'
+              --print-summary --xml coverage/coverage.xml
+              --html-details coverage/index.html
+      WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+      COMMENT "Running tests and generating coverage report with gcovr"
+    )
+  else()
+    add_custom_target(coverage
+      COMMAND ${CMAKE_COMMAND} -E echo "gcovr not found. Re-run CMake after installing (apt-get install gcovr OR pip install gcovr)."
+      COMMENT "gcovr not available"
+    )
   endif()
 endif()

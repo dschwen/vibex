@@ -1,6 +1,7 @@
 #include <cassert>
 #include <cmath>
 #include "et/expr.hpp"
+#include "et/simplify.hpp"
 
 using namespace et;
 
@@ -67,6 +68,9 @@ int main() {
     assert(approx(ds(xv), 0.5 / std::sqrt(xv)));
     auto sf = [&](double v){ return s(v); };
     assert(approx(ds(xv), fd1(sf, xv), 1e-6));
+    // simplify: sqrt(Const)
+    auto sc = simplify(sqrt(lit(2.5)));
+    assert(approx(sc(0.0), std::sqrt(2.5)));
   }
 
   // tanh: d/dx tanh(x) = 1 - tanh(x)^2
@@ -79,6 +83,9 @@ int main() {
     assert(approx(dt(xv), 1.0 - th * th));
     auto tf = [&](double v){ return t(v); };
     assert(approx(dt(xv), fd1(tf, xv), 1e-6));
+    // simplify: tanh(Const)
+    auto tc = simplify(tanh(lit(-0.9)));
+    assert(approx(tc(0.0), std::tanh(-0.9)));
   }
 
   return 0;

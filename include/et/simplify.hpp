@@ -106,8 +106,9 @@ constexpr auto simplify_add(L&& l, R&& r) {
   if constexpr (is_const_node_v<decltype(ls)> && is_const_node_v<decltype(rs)>) {
     using TL = typename decltype(ls)::value_type;
     return Const<TL>{ const_value<decltype(ls)>::get(ls) + const_value<decltype(rs)>::get(rs) };
+  } else {
+    return Apply<AddOp, decltype(ls), decltype(rs)>(std::move(ls), std::move(rs));
   }
-  return Apply<AddOp, decltype(ls), decltype(rs)>(std::move(ls), std::move(rs));
 }
 
 template <class L, class R>
@@ -116,8 +117,9 @@ constexpr auto simplify_sub(L&& l, R&& r) {
   if constexpr (is_const_node_v<decltype(ls)> && is_const_node_v<decltype(rs)>) {
     using TL = typename decltype(ls)::value_type;
     return Const<TL>{ const_value<decltype(ls)>::get(ls) - const_value<decltype(rs)>::get(rs) };
+  } else {
+    return Apply<SubOp, decltype(ls), decltype(rs)>(std::move(ls), std::move(rs));
   }
-  return Apply<SubOp, decltype(ls), decltype(rs)>(std::move(ls), std::move(rs));
 }
 
 template <class L, class R>
@@ -126,8 +128,9 @@ constexpr auto simplify_mul(L&& l, R&& r) {
   if constexpr (is_const_node_v<decltype(ls)> && is_const_node_v<decltype(rs)>) {
     using TL = typename decltype(ls)::value_type;
     return Const<TL>{ const_value<decltype(ls)>::get(ls) * const_value<decltype(rs)>::get(rs) };
+  } else {
+    return Apply<MulOp, decltype(ls), decltype(rs)>(std::move(ls), std::move(rs));
   }
-  return Apply<MulOp, decltype(ls), decltype(rs)>(std::move(ls), std::move(rs));
 }
 
 template <class L, class R>
@@ -136,20 +139,27 @@ constexpr auto simplify_div(L&& l, R&& r) {
   if constexpr (is_const_node_v<decltype(ls)> && is_const_node_v<decltype(rs)>) {
     using TL = typename decltype(ls)::value_type;
     return Const<TL>{ const_value<decltype(ls)>::get(ls) / const_value<decltype(rs)>::get(rs) };
+  } else {
+    return Apply<DivOp, decltype(ls), decltype(rs)>(std::move(ls), std::move(rs));
   }
-  return Apply<DivOp, decltype(ls), decltype(rs)>(std::move(ls), std::move(rs));
 }
 
 // Apply dispatcher
 template <class Op, class L, class R>
 constexpr auto simplify(const Apply<Op, L, R>& node) {
-  if constexpr (std::is_same<Op, AddOp>::value) return simplify_add(node.template child<0>(), node.template child<1>());
-  if constexpr (std::is_same<Op, SubOp>::value) return simplify_sub(node.template child<0>(), node.template child<1>());
-  if constexpr (std::is_same<Op, MulOp>::value) return simplify_mul(node.template child<0>(), node.template child<1>());
-  if constexpr (std::is_same<Op, DivOp>::value) return simplify_div(node.template child<0>(), node.template child<1>());
-  auto l = simplify(node.template child<0>());
-  auto r = simplify(node.template child<1>());
-  return Apply<Op, decltype(l), decltype(r)>(std::move(l), std::move(r));
+  if constexpr (std::is_same<Op, AddOp>::value) {
+    return simplify_add(node.template child<0>(), node.template child<1>());
+  } else if constexpr (std::is_same<Op, SubOp>::value) {
+    return simplify_sub(node.template child<0>(), node.template child<1>());
+  } else if constexpr (std::is_same<Op, MulOp>::value) {
+    return simplify_mul(node.template child<0>(), node.template child<1>());
+  } else if constexpr (std::is_same<Op, DivOp>::value) {
+    return simplify_div(node.template child<0>(), node.template child<1>());
+  } else {
+    auto l = simplify(node.template child<0>());
+    auto r = simplify(node.template child<1>());
+    return Apply<Op, decltype(l), decltype(r)>(std::move(l), std::move(r));
+  }
 }
 template <class Op, class A>
 constexpr auto simplify(const Apply<Op, A>& node) {
