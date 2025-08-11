@@ -96,6 +96,16 @@ auto g = simplify(dfx);      // returns an ET node (possibly with Const folded)
 auto v = g(2.4, 6, 1.1);
 ```
 
+For aggressive canonicalization and algebraic identities, use the rewrite engine:
+
+```cpp
+auto r = rewrite(f, default_rules());
+```
+
+It normalizes associative/commutative ops and applies pattern-based rules
+like neutral elements and trig identities (see `DESIGN_REWRITE.md` and
+`examples/08_rewrite_rules.cpp`).
+
 ---
 
 ## 4) Backends & Visitors
