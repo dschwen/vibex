@@ -44,6 +44,9 @@ target_link_libraries(06_ops_and_cse PRIVATE et)
 add_executable(07_hash_cse examples/07_hash_cse.cpp)
 target_link_libraries(07_hash_cse PRIVATE et)
 
+add_executable(08_rewrite_rules examples/08_rewrite_rules.cpp)
+target_link_libraries(08_rewrite_rules PRIVATE et)
+
 if(ET_WITH_TORCH AND ET_BUILD_TORCH_EXAMPLES)
   find_package(Torch REQUIRED)
   add_executable(05_torchjit examples/05_torchjit.cpp)

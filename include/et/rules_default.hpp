@@ -33,8 +33,18 @@ inline std::vector<Rule> default_rules() {
     /*name=*/ "exp_log", /*priority=*/ 5
   });
 
+  // Like-term merging (basic): (k1*x) + (k2*x) -> (k1+k2)*x where k1,k2 const
+  rs.push_back(Rule{
+    /*lhs=*/ ( (pat::mul(P(2), P(1))) + (pat::mul(P(3), P(1))) ),
+    /*rhs=*/ pat::mul( pat::add(P(2), P(3)), P(1) ),
+    /*guard=*/ [](const RGraph& g, const Bindings& b){
+      auto is_const = [&](int pid){ auto it=b.find(pid); return it!=b.end() && g.nodes[it->second].kind==NodeKind::Const; };
+      return is_const(2) && is_const(3);
+    },
+    /*name=*/ "like_terms_add", /*priority=*/ 3
+  });
+
   return rs;
 }
 
 } // namespace et
-
