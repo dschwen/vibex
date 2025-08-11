@@ -54,6 +54,10 @@ inline auto compile_runtime(const RGraph& g, Backend& b) -> typename Backend::re
         auto a = rec(n.ch[0]); auto c = rec(n.ch[1]);
         return b.emitApply(DivOp{}, a, c);
       }
+      case NodeKind::Pow: {
+        auto a = rec(n.ch[0]); auto c = rec(n.ch[1]);
+        return b.emitApply(PowOp{}, a, c);
+      }
       case NodeKind::Add: {
         auto acc = rec(n.ch[0]);
         for (std::size_t i = 1; i < n.ch.size(); ++i) {
@@ -79,4 +83,3 @@ inline auto compile_runtime(const RGraph& g, Backend& b) -> typename Backend::re
 }
 
 } // namespace et
-

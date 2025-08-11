@@ -46,6 +46,7 @@ inline Pattern add(const Pattern& a, const Pattern& b) { return Pattern::node(No
 inline Pattern sub(const Pattern& a, const Pattern& b) { return Pattern::node(NodeKind::Sub, {a,b}); }
 inline Pattern mul(const Pattern& a, const Pattern& b) { return Pattern::node(NodeKind::Mul, {a,b}); }
 inline Pattern div(const Pattern& a, const Pattern& b) { return Pattern::node(NodeKind::Div, {a,b}); }
+inline Pattern pow(const Pattern& a, const Pattern& b) { return Pattern::node(NodeKind::Pow, {a,b}); }
 
 // Operator sugar for patterns
 inline Pattern operator+(const Pattern& a, const Pattern& b) { return add(a,b); }

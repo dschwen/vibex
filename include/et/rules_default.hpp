@@ -58,7 +58,7 @@ inline std::vector<Rule> default_rules() {
                 pat::mul(P(2), P(2)),
                 S(9)
               }),
-    /*rhs=*/ pat::Pattern::node(NodeKind::Add, { pat::mul( pat::add(P(1), P(2)), pat::add(P(1), P(2)) ), S(9) }),
+    /*rhs=*/ pat::Pattern::node(NodeKind::Add, { pat::pow( pat::add(P(1), P(2)), C(2.0) ), S(9) }),
     /*guard=*/ [](const RGraph& g, const Bindings& b, const MultiBindings&){
       auto it = b.find(0); if (it==b.end()) return false; const auto& n=g.nodes[it->second];
       return n.kind==NodeKind::Const && n.cval==2.0;
@@ -89,7 +89,7 @@ inline std::vector<Rule> default_rules() {
               pat::mul(P(2), P(2)),
               S(9)
             }),
-    /*rhs=*/ pat::Pattern::node(NodeKind::Add, { pat::mul( pat::sub(P(1), P(2)), pat::sub(P(1), P(2)) ), S(9) }),
+    /*rhs=*/ pat::Pattern::node(NodeKind::Add, { pat::pow( pat::sub(P(1), P(2)), C(2.0) ), S(9) }),
     /*guard=*/ [](const RGraph& g, const Bindings& b, const MultiBindings&){
       auto it = b.find(0); if (it==b.end()) return false; const auto& n=g.nodes[it->second];
       return n.kind==NodeKind::Const && n.cval==2.0;

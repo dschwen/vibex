@@ -31,7 +31,7 @@ int main() {
     double ref = (in[0]+in[1])*(in[0]+in[1]) + in[0];
     assert(approx(v, ref));
     // Check structure matches (a+b)^2 + rest
-    Pattern fact = add( mul(add(P(1),P(2)), add(P(1),P(2))), S(9) );
+    Pattern fact = add( pow(add(P(1),P(2)), C(2.0)), S(9) );
     Bindings bnd; MultiBindings mb;
     bool ok = match(gr, fact, bnd, mb);
     assert(ok);
@@ -48,11 +48,10 @@ int main() {
     double v = eval(gr, in);
     double ref = (in[0]-in[1])*(in[0]-in[1]) + in[1];
     assert(approx(v, ref));
-    Pattern fact = add( mul(sub(P(1),P(2)), sub(P(1),P(2))), S(9) );
+    Pattern fact = add( pow(sub(P(1),P(2)), C(2.0)), S(9) );
     Bindings bnd; MultiBindings mb;
     bool ok = match(gr, fact, bnd, mb);
     assert(ok);
   }
   return 0;
 }
-

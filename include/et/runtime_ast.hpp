@@ -18,7 +18,7 @@ namespace et {
 // Runtime AST kinds mirror ET Op tags
 enum class NodeKind : uint8_t {
   Var, Const,
-  Add, Sub, Mul, Div,
+  Add, Sub, Mul, Div, Pow,
   Neg, Sin, Cos, Exp, Log, Sqrt, Tanh
 };
 
@@ -45,6 +45,7 @@ template <> struct nodekind_of<AddOp>  { static constexpr NodeKind value = NodeK
 template <> struct nodekind_of<SubOp>  { static constexpr NodeKind value = NodeKind::Sub; };
 template <> struct nodekind_of<MulOp>  { static constexpr NodeKind value = NodeKind::Mul; };
 template <> struct nodekind_of<DivOp>  { static constexpr NodeKind value = NodeKind::Div; };
+template <> struct nodekind_of<PowOp>  { static constexpr NodeKind value = NodeKind::Pow; };
 template <> struct nodekind_of<NegOp>  { static constexpr NodeKind value = NodeKind::Neg; };
 template <> struct nodekind_of<SinOp>  { static constexpr NodeKind value = NodeKind::Sin; };
 template <> struct nodekind_of<CosOp>  { static constexpr NodeKind value = NodeKind::Cos; };
@@ -100,6 +101,7 @@ inline double eval(const RGraph& g, const std::vector<double>& inputs) {
       case NodeKind::Mul:   slot = rec(n.ch[0]); for (std::size_t i=1;i<n.ch.size();++i) slot *= rec(n.ch[i]); break;
       case NodeKind::Sub:   slot = rec(n.ch[0]) - rec(n.ch[1]); break;
       case NodeKind::Div:   slot = rec(n.ch[0]) / rec(n.ch[1]); break;
+      case NodeKind::Pow:   slot = std::pow(rec(n.ch[0]), rec(n.ch[1])); break;
       case NodeKind::Neg:   slot = -rec(n.ch[0]); break;
       case NodeKind::Sin:   slot = std::sin(rec(n.ch[0])); break;
       case NodeKind::Cos:   slot = std::cos(rec(n.ch[0])); break;
@@ -139,6 +141,7 @@ inline std::string r_to_string(const RGraph& g) {
       case NodeKind::Mul:   return join("Mul");
       case NodeKind::Sub:   return join("Sub");
       case NodeKind::Div:   return join("Div");
+      case NodeKind::Pow:   return join("Pow");
       case NodeKind::Neg:   return std::string("Neg(") + rec(n.ch[0]) + ")";
       case NodeKind::Sin:   return std::string("Sin(") + rec(n.ch[0]) + ")";
       case NodeKind::Cos:   return std::string("Cos(") + rec(n.ch[0]) + ")";
@@ -208,6 +211,7 @@ inline auto build_et(const RGraph& g, int id) {
     case NodeKind::Sub:  return make_bin_build<T,SubOp>(g, n);
     case NodeKind::Mul:  return fold_nary_build<T,MulOp>(g, n);
     case NodeKind::Div:  return make_bin_build<T,DivOp>(g, n);
+    case NodeKind::Pow:  return make_bin_build<T,PowOp>(g, n);
   }
   return lit(static_cast<T>(0));
 }
