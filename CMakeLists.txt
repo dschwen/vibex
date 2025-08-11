@@ -81,6 +81,15 @@ if(BUILD_TESTING)
   target_link_libraries(et_tests_cse PRIVATE et)
   add_test(NAME et_cse COMMAND et_tests_cse)
 
+  # New tests: runtime AST and normalization
+  add_executable(et_tests_runtime tests/test_runtime.cpp)
+  target_link_libraries(et_tests_runtime PRIVATE et)
+  add_test(NAME et_runtime COMMAND et_tests_runtime)
+
+  add_executable(et_tests_normalize tests/test_normalize.cpp)
+  target_link_libraries(et_tests_normalize PRIVATE et)
+  add_test(NAME et_normalize COMMAND et_tests_normalize)
+
   if(ET_WITH_TORCH AND ET_BUILD_TORCH_TESTS)
     find_package(Torch REQUIRED)
     add_executable(et_torch_tests tests/test_torch.cpp)

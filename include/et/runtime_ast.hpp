@@ -81,60 +81,6 @@ inline bool r_equal(const RGraph& g, int a, int b) {
   return true;
 }
 
-// Convert runtime graph back to ET expression (templated on scalar type)
-template <class T>
-struct ReifyET {
-  using Expr = Const<T>; // placeholder type alias; actual type is variant of ET nodes
-
-  static auto build(const RGraph& g, int id) {
-    const RNode& n = g.nodes[id];
-    switch (n.kind) {
-      case NodeKind::Const: return lit(static_cast<T>(n.cval));
-      case NodeKind::Var:   return Var<T, 0 + 0>{}.template operator()<T>(T{}), lit(T{}); // dummy to silence warnings
-      default: break; // handled below via helpers
-    }
-    // Non-leaf helpers
-    auto child = [&](int cid){ return build(g, cid); };
-    switch (n.kind) {
-      case NodeKind::Neg: {
-        auto a = child(n.ch[0]);
-        return Apply<NegOp, decltype(a)>(std::move(a));
-      }
-      case NodeKind::Sin: { auto a = child(n.ch[0]); return Apply<SinOp, decltype(a)>(std::move(a)); }
-      case NodeKind::Cos: { auto a = child(n.ch[0]); return Apply<CosOp, decltype(a)>(std::move(a)); }
-      case NodeKind::Exp: { auto a = child(n.ch[0]); return Apply<ExpOp, decltype(a)>(std::move(a)); }
-      case NodeKind::Log: { auto a = child(n.ch[0]); return Apply<LogOp, decltype(a)>(std::move(a)); }
-      case NodeKind::Sqrt:{ auto a = child(n.ch[0]); return Apply<SqrtOp, decltype(a)>(std::move(a)); }
-      case NodeKind::Tanh:{ auto a = child(n.ch[0]); return Apply<TanhOp, decltype(a)>(std::move(a)); }
-      case NodeKind::Add:  return fold_nary<AddOp>(g, n);
-      case NodeKind::Sub:  return make_bin<SubOp>(g, n);
-      case NodeKind::Mul:  return fold_nary<MulOp>(g, n);
-      case NodeKind::Div:  return make_bin<DivOp>(g, n);
-      default: break;
-    }
-    // Unreachable
-    return lit(static_cast<T>(0));
-  }
-
-private:
-  template <class Op>
-  static auto make_bin(const RGraph& g, const RNode& n) {
-    auto a = build(g, n.ch[0]);
-    auto b = build(g, n.ch[1]);
-    return Apply<Op, decltype(a), decltype(b)>(std::move(a), std::move(b));
-  }
-  template <class Op>
-  static auto fold_nary(const RGraph& g, const RNode& n) {
-    // Left fold: (((c0 op c1) op c2) ...)
-    auto acc = build(g, n.ch[0]);
-    for (std::size_t i = 1; i < n.ch.size(); ++i) {
-      auto rhs = build(g, n.ch[i]);
-      acc = Apply<Op, decltype(acc), decltype(rhs)>(std::move(acc), std::move(rhs));
-    }
-    return acc;
-  }
-};
-
 // Specialized creators for leaves to avoid needing runtime info about Var template index
 // We reconstruct variables by scanning var_index and instantiating Var<T,I> via a factory.
 // Helper: make Var<T,I> by index at compile-time using a small switch (bounded by reasonable arity).
@@ -153,46 +99,51 @@ inline auto reify_var(std::size_t idx) {
   }
 }
 
+// Forward declaration for recursive builder
+template <class T>
+inline auto build_et(const RGraph& g, int id);
+
+template <class T, class Op>
+inline auto make_bin_build(const RGraph& g, const RNode& n) {
+  auto a = build_et<T>(g, n.ch[0]);
+  auto b = build_et<T>(g, n.ch[1]);
+  return Apply<Op, decltype(a), decltype(b)>(std::move(a), std::move(b));
+}
+
+template <class T, class Op>
+inline auto fold_nary_build(const RGraph& g, const RNode& n) {
+  auto acc = build_et<T>(g, n.ch[0]);
+  for (std::size_t i = 1; i < n.ch.size(); ++i) {
+    auto rhs = build_et<T>(g, n.ch[i]);
+    acc = Apply<Op, decltype(acc), decltype(rhs)>(std::move(acc), std::move(rhs));
+  }
+  return acc;
+}
+
+template <class T>
+inline auto build_et(const RGraph& g, int id) {
+  const RNode& n = g.nodes[id];
+  switch (n.kind) {
+    case NodeKind::Const: return lit(static_cast<T>(n.cval));
+    case NodeKind::Var:   return reify_var<T>(n.var_index);
+    case NodeKind::Neg: { auto a = build_et<T>(g, n.ch[0]); return Apply<NegOp, decltype(a)>(std::move(a)); }
+    case NodeKind::Sin: { auto a = build_et<T>(g, n.ch[0]); return Apply<SinOp, decltype(a)>(std::move(a)); }
+    case NodeKind::Cos: { auto a = build_et<T>(g, n.ch[0]); return Apply<CosOp, decltype(a)>(std::move(a)); }
+    case NodeKind::Exp: { auto a = build_et<T>(g, n.ch[0]); return Apply<ExpOp, decltype(a)>(std::move(a)); }
+    case NodeKind::Log: { auto a = build_et<T>(g, n.ch[0]); return Apply<LogOp, decltype(a)>(std::move(a)); }
+    case NodeKind::Sqrt:{ auto a = build_et<T>(g, n.ch[0]); return Apply<SqrtOp, decltype(a)>(std::move(a)); }
+    case NodeKind::Tanh:{ auto a = build_et<T>(g, n.ch[0]); return Apply<TanhOp, decltype(a)>(std::move(a)); }
+    case NodeKind::Add:  return fold_nary_build<T,AddOp>(g, n);
+    case NodeKind::Sub:  return make_bin_build<T,SubOp>(g, n);
+    case NodeKind::Mul:  return fold_nary_build<T,MulOp>(g, n);
+    case NodeKind::Div:  return make_bin_build<T,DivOp>(g, n);
+  }
+  return lit(static_cast<T>(0));
+}
+
 template <class T>
 inline auto to_et(const RGraph& g) {
-  // Local lambda to build recursively with proper Var construction
-  struct Builder {
-    static auto build(const RGraph& g, int id) {
-      const RNode& n = g.nodes[id];
-      switch (n.kind) {
-        case NodeKind::Const: return lit(static_cast<T>(n.cval));
-        case NodeKind::Var:   return reify_var<T>(n.var_index);
-        case NodeKind::Neg: { auto a = build(g, n.ch[0]); return Apply<NegOp, decltype(a)>(std::move(a)); }
-        case NodeKind::Sin: { auto a = build(g, n.ch[0]); return Apply<SinOp, decltype(a)>(std::move(a)); }
-        case NodeKind::Cos: { auto a = build(g, n.ch[0]); return Apply<CosOp, decltype(a)>(std::move(a)); }
-        case NodeKind::Exp: { auto a = build(g, n.ch[0]); return Apply<ExpOp, decltype(a)>(std::move(a)); }
-        case NodeKind::Log: { auto a = build(g, n.ch[0]); return Apply<LogOp, decltype(a)>(std::move(a)); }
-        case NodeKind::Sqrt:{ auto a = build(g, n.ch[0]); return Apply<SqrtOp, decltype(a)>(std::move(a)); }
-        case NodeKind::Tanh:{ auto a = build(g, n.ch[0]); return Apply<TanhOp, decltype(a)>(std::move(a)); }
-        case NodeKind::Add:  return fold_nary<AddOp>(g, n);
-        case NodeKind::Sub:  return make_bin<SubOp>(g, n);
-        case NodeKind::Mul:  return fold_nary<MulOp>(g, n);
-        case NodeKind::Div:  return make_bin<DivOp>(g, n);
-      }
-      return lit(static_cast<T>(0));
-    }
-    template <class Op>
-    static auto make_bin(const RGraph& g, const RNode& n) {
-      auto a = build(g, n.ch[0]);
-      auto b = build(g, n.ch[1]);
-      return Apply<Op, decltype(a), decltype(b)>(std::move(a), std::move(b));
-    }
-    template <class Op>
-    static auto fold_nary(const RGraph& g, const RNode& n) {
-      auto acc = build(g, n.ch[0]);
-      for (std::size_t i = 1; i < n.ch.size(); ++i) {
-        auto rhs = build(g, n.ch[i]);
-        acc = Apply<Op, decltype(acc), decltype(rhs)>(std::move(acc), std::move(rhs));
-      }
-      return acc;
-    }
-  };
-  return Builder::build(g, g.root);
+  return build_et<T>(g, g.root);
 }
 
 // Entry: end-to-end ET -> runtime graph
@@ -204,4 +155,3 @@ inline RGraph compile_to_runtime(const Expr& e) {
 }
 
 } // namespace et
-
