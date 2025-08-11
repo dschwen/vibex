@@ -12,7 +12,7 @@ namespace et {
 struct Rule {
   pat::Pattern lhs;
   pat::Pattern rhs;
-  std::function<bool(const RGraph&, const Bindings&)> guard; // optional
+  std::function<bool(const RGraph&, const Bindings&, const MultiBindings&)> guard; // optional
   const char* name = "";
   int priority = 0;
 };
@@ -31,20 +31,41 @@ inline int clone_subtree(const RGraph& src, RGraph& dst, int id, std::unordered_
 }
 
 // Instantiate RHS pattern into a new subtree in dst graph according to bindings over src
-inline int instantiate_rhs(const pat::Pattern& p, const RGraph& src, const Bindings& b, RGraph& dst,
-                           std::unordered_map<int,int>& memo_clone) {
+inline int instantiate_rhs(const pat::Pattern& p, const RGraph& src, const Bindings& b, const MultiBindings& mb,
+                           RGraph& dst, std::unordered_map<int,int>& memo_clone) {
   using Kind = pat::Pattern::Kind;
   if (p.kind == Kind::Placeholder) {
-    auto it = b.find(p.placeholder_id);
-    if (it == b.end()) return -1; // invalid
-    return clone_subtree(src, dst, it->second, memo_clone);
+    if (p.is_spread) {
+      // Spread should be handled at parent AC node; not valid as top-level
+      auto itv = mb.find(p.placeholder_id);
+      if (itv != mb.end() && !itv->second.empty()) {
+        // Create a neutral node of Add with all children (best effort); caller should only embed in AC context
+        RNode nn; nn.kind = NodeKind::Add; nn.ch.reserve(itv->second.size());
+        for (int cid : itv->second) nn.ch.push_back(clone_subtree(src, dst, cid, memo_clone));
+        return dst.add(std::move(nn));
+      }
+      return dst.add(RNode{NodeKind::Add, {}, 0.0, 0});
+    } else {
+      auto it = b.find(p.placeholder_id);
+      if (it == b.end()) return -1; // invalid
+      return clone_subtree(src, dst, it->second, memo_clone);
+    }
   }
   // Concrete node
   RNode n; n.kind = p.node_kind;
   if (n.kind == NodeKind::Const) { n.cval = p.cval; }
   if (n.kind == NodeKind::Var)   { n.var_index = p.var_index; }
   n.ch.reserve(p.ch.size());
-  for (const auto& c : p.ch) n.ch.push_back(instantiate_rhs(c, src, b, dst, memo_clone));
+  for (const auto& c : p.ch) {
+    if (c.kind == pat::Pattern::Kind::Placeholder && c.is_spread && (n.kind==NodeKind::Add || n.kind==NodeKind::Mul)) {
+      auto itv = mb.find(c.placeholder_id);
+      if (itv != mb.end()) {
+        for (int cid : itv->second) n.ch.push_back(clone_subtree(src, dst, cid, memo_clone));
+      }
+    } else {
+      n.ch.push_back(instantiate_rhs(c, src, b, mb, dst, memo_clone));
+    }
+  }
   return dst.add(std::move(n));
 }
 
@@ -59,11 +80,11 @@ inline int rewrite_node(const RGraph& src, int id, const std::vector<Rule>& rule
 
   // Try rules at this node (on the original shape, but we could also match against normalized children)
   for (const auto& r : rules) {
-    Bindings bind;
-    if (match_node(src, id, r.lhs, bind)) {
-      if (!r.guard || r.guard(src, bind)) {
+    Bindings bind; MultiBindings mbind;
+    if (match_node(src, id, r.lhs, bind, mbind)) {
+      if (!r.guard || r.guard(src, bind, mbind)) {
         std::unordered_map<int,int> memo_clone;
-        int rid = instantiate_rhs(r.rhs, src, bind, dst, memo_clone);
+        int rid = instantiate_rhs(r.rhs, src, bind, mbind, dst, memo_clone);
         return rid;
       }
     }

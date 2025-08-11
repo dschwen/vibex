@@ -12,6 +12,7 @@ struct Pattern {
   Kind kind{Kind::Node};
   NodeKind node_kind{NodeKind::Const};
   int placeholder_id{-1};
+  bool is_spread{false}; // matches zero or more args in AC nodes
   std::vector<Pattern> ch;
   // Optional payloads for concrete Const/Var in patterns (primarily for RHS construction)
   double cval{0.0};
@@ -27,6 +28,7 @@ struct Pattern {
 
 // Placeholder factory
 inline Pattern P(int id) { return Pattern::placeholder(id); }
+inline Pattern S(int id) { Pattern p = Pattern::placeholder(id); p.is_spread = true; return p; }
 inline Pattern C(double v) { Pattern p = Pattern::node(NodeKind::Const, {}); p.cval = v; return p; }
 inline Pattern V(std::size_t idx) { Pattern p = Pattern::node(NodeKind::Var, {}); p.var_index = idx; return p; }
 

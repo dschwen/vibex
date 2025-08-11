@@ -19,8 +19,8 @@ int main() {
 
     // Pattern: sin(P1)*sin(P1) + cos(P1)*cos(P1)
     Pattern p = (sin(P(1))*sin(P(1))) + (cos(P(1))*cos(P(1)));
-    Bindings b;
-    bool ok = match(gn, p, b);
+    Bindings b; MultiBindings mb;
+    bool ok = match(gn, p, b, mb);
     assert(ok);
     assert(b.count(1) == 1);
     int nid = b[1];
@@ -35,8 +35,8 @@ int main() {
     RGraph g = compile_to_runtime(e);
     RGraph gn = normalize(g);
     Pattern p = (sin(P(1))*sin(P(1))) + (cos(P(1))*cos(P(1)));
-    Bindings b;
-    bool ok = match(gn, p, b);
+    Bindings b; MultiBindings mb;
+    bool ok = match(gn, p, b, mb);
     assert(!ok);
   }
 
@@ -47,11 +47,10 @@ int main() {
     RGraph g = compile_to_runtime(e);
     RGraph gn = normalize(g);
     Pattern p = sin(P(1))*sin(P(1));
-    Bindings b;
-    bool ok = match(gn, p, b);
+    Bindings b; MultiBindings mb;
+    bool ok = match(gn, p, b, mb);
     assert(!ok);
   }
 
   return 0;
 }
-
