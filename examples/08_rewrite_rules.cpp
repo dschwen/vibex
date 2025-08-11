@@ -19,9 +19,8 @@ int main() {
   auto [x] = Vars<double,1>();
   auto e = sin(x)*sin(x) + cos(x)*cos(x) + (lit(2.0)*x + lit(3.0)*x);
 
-  // 1) Build runtime graph and normalize
+  // 1) Build runtime graph (keep pre-normalized shape to allow subpattern matches)
   RGraph g = compile_to_runtime(e);
-  g = normalize(g);
 
   // 2) Apply algebraic rewrite rules
   auto rules = default_rules();
@@ -54,4 +53,3 @@ int main() {
 
   return 0;
 }
-

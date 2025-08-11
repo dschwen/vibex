@@ -18,8 +18,8 @@ bool match_node(const RGraph& g, int id, const pat::Pattern& p, Bindings& b);
 // AC multiset matching with backtracking
 inline bool match_ac(const RGraph& g, const RNode& n, const pat::Pattern& p, Bindings& b) {
   if (n.kind != p.node_kind) return false;
-  // Early prune: pattern cannot match if it has more children than expr
-  if (p.ch.size() > n.ch.size()) return false;
+  // Require exact multiset cover to avoid dropping unmatched children
+  if (p.ch.size() != n.ch.size()) return false;
 
   // Order pattern children by decreasing specificity
   std::vector<std::size_t> pidx(p.ch.size());
@@ -82,4 +82,3 @@ inline bool match(const RGraph& g, const pat::Pattern& p, Bindings& b) {
 }
 
 } // namespace et
-

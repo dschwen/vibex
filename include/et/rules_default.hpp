@@ -33,6 +33,22 @@ inline std::vector<Rule> default_rules() {
     /*name=*/ "exp_log", /*priority=*/ 5
   });
 
+  // Trig odd/even
+  rs.push_back(Rule{ /*lhs=*/ sin(pat::neg(P(1))), /*rhs=*/ pat::neg(sin(P(1))), /*guard=*/ {}, "sin_odd", 2 });
+  rs.push_back(Rule{ /*lhs=*/ cos(pat::neg(P(1))), /*rhs=*/ cos(P(1)), /*guard=*/ {}, "cos_even", 2 });
+
+  // Simple constants
+  rs.push_back(Rule{ /*lhs=*/ log(C(1.0)), /*rhs=*/ C(0.0), /*guard=*/ {}, "log_one", 2 });
+  rs.push_back(Rule{ /*lhs=*/ exp(C(0.0)), /*rhs=*/ C(1.0), /*guard=*/ {}, "exp_zero", 2 });
+
+  // Distributive factoring: a*b + a*c -> a*(b+c)
+  rs.push_back(Rule{
+    /*lhs=*/ pat::add(pat::mul(P(1), P(2)), pat::mul(P(1), P(3))),
+    /*rhs=*/ pat::mul(P(1), pat::add(P(2), P(3))),
+    /*guard=*/ {},
+    /*name=*/ "factor_common_left", /*priority=*/ 4
+  });
+
   // Like-term merging (basic): (k1*x) + (k2*x) -> (k1+k2)*x where k1,k2 const
   rs.push_back(Rule{
     /*lhs=*/ ( (pat::mul(P(2), P(1))) + (pat::mul(P(3), P(1))) ),

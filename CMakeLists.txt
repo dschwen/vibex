@@ -101,6 +101,10 @@ if(BUILD_TESTING)
   target_link_libraries(et_tests_rewrite PRIVATE et)
   add_test(NAME et_rewrite COMMAND et_tests_rewrite)
 
+  add_executable(et_tests_rewrite_large tests/test_rewrite_large.cpp)
+  target_link_libraries(et_tests_rewrite_large PRIVATE et)
+  add_test(NAME et_rewrite_large COMMAND et_tests_rewrite_large)
+
   if(ET_WITH_TORCH AND ET_BUILD_TORCH_TESTS)
     find_package(Torch REQUIRED)
     add_executable(et_torch_tests tests/test_torch.cpp)
