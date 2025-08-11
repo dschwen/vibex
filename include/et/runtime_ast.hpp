@@ -8,6 +8,8 @@
 #include <functional>
 #include <limits>
 #include <cmath>
+#include <sstream>
+#include <string>
 
 #include "et/expr.hpp"
 
@@ -107,6 +109,45 @@ inline double eval(const RGraph& g, const std::vector<double>& inputs) {
       case NodeKind::Tanh:  slot = std::tanh(rec(n.ch[0])); break;
     }
     return slot;
+  };
+  return rec(g.root);
+}
+
+// Deterministic structural string for testing/canonical comparison
+inline std::string r_to_string(const RGraph& g) {
+  std::function<std::string(int)> rec = [&](int id) -> std::string {
+    const RNode& n = g.nodes[id];
+    auto fmt_c = [&](double v){
+      std::ostringstream os;
+      double r = std::round(v);
+      if (std::fabs(v - r) < 1e-12) os << static_cast<long long>(r);
+      else { os.setf(std::ios::fixed); os.precision(12); os << v; }
+      return std::string("C(") + os.str() + ")";
+    };
+    auto join = [&](const char* name){
+      std::string s; s += name; s += '(';
+      for (std::size_t i=0;i<n.ch.size();++i) {
+        if (i) s += ',';
+        s += rec(n.ch[i]);
+      }
+      s += ')'; return s;
+    };
+    switch (n.kind) {
+      case NodeKind::Const: return fmt_c(n.cval);
+      case NodeKind::Var:   return std::string("V(") + std::to_string(n.var_index) + ")";
+      case NodeKind::Add:   return join("Add");
+      case NodeKind::Mul:   return join("Mul");
+      case NodeKind::Sub:   return join("Sub");
+      case NodeKind::Div:   return join("Div");
+      case NodeKind::Neg:   return std::string("Neg(") + rec(n.ch[0]) + ")";
+      case NodeKind::Sin:   return std::string("Sin(") + rec(n.ch[0]) + ")";
+      case NodeKind::Cos:   return std::string("Cos(") + rec(n.ch[0]) + ")";
+      case NodeKind::Exp:   return std::string("Exp(") + rec(n.ch[0]) + ")";
+      case NodeKind::Log:   return std::string("Log(") + rec(n.ch[0]) + ")";
+      case NodeKind::Sqrt:  return std::string("Sqrt(") + rec(n.ch[0]) + ")";
+      case NodeKind::Tanh:  return std::string("Tanh(") + rec(n.ch[0]) + ")";
+    }
+    return "";
   };
   return rec(g.root);
 }
