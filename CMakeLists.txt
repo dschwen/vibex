@@ -90,6 +90,10 @@ if(BUILD_TESTING)
   target_link_libraries(et_tests_normalize PRIVATE et)
   add_test(NAME et_normalize COMMAND et_tests_normalize)
 
+  add_executable(et_tests_pattern tests/test_pattern_match.cpp)
+  target_link_libraries(et_tests_pattern PRIVATE et)
+  add_test(NAME et_pattern COMMAND et_tests_pattern)
+
   if(ET_WITH_TORCH AND ET_BUILD_TORCH_TESTS)
     find_package(Torch REQUIRED)
     add_executable(et_torch_tests tests/test_torch.cpp)
