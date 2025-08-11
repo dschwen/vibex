@@ -122,7 +122,7 @@ struct Tape {
     for (auto& n : nodes) if (n.kind == KVar) arity = std::max(arity, n.var_index+1);
     std::vector<double> grad(arity, 0.0);
     for (int i = 0; i < N; ++i)
-      if (nodes[i].kind == KVar) grad[nodes[i].var_index] = bar[i];
+      if (nodes[i].kind == KVar) grad[nodes[i].var_index] += bar[i];
     return grad;
   }
 };
