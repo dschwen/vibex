@@ -1,5 +1,7 @@
 #pragma once
 #include <type_traits>
+#include "et/rewrite.hpp"
+#include "et/rules_default.hpp"
 
 namespace et {
 
@@ -165,6 +167,15 @@ template <class Op, class A>
 constexpr auto simplify(const Apply<Op, A>& node) {
   auto a = simplify(node.template child<0>());
   return Apply<Op, decltype(a)>(std::move(a));
+}
+
+// Algebraic simplification via rewrite rules (fallback API)
+template <class Expr>
+inline auto simplify_algebraic(const Expr& e) {
+  auto g = compile_to_runtime(e);
+  g = normalize(g);
+  g = rewrite_fixed_point(g, default_rules(), 6);
+  return g; // return runtime graph for now; callers can eval() or integrate further
 }
 
 } // namespace et

@@ -13,6 +13,9 @@ struct Pattern {
   NodeKind node_kind{NodeKind::Const};
   int placeholder_id{-1};
   std::vector<Pattern> ch;
+  // Optional payloads for concrete Const/Var in patterns (primarily for RHS construction)
+  double cval{0.0};
+  std::size_t var_index{0};
 
   static Pattern placeholder(int id) {
     Pattern p; p.kind = Kind::Placeholder; p.placeholder_id = id; return p;
@@ -24,6 +27,8 @@ struct Pattern {
 
 // Placeholder factory
 inline Pattern P(int id) { return Pattern::placeholder(id); }
+inline Pattern C(double v) { Pattern p = Pattern::node(NodeKind::Const, {}); p.cval = v; return p; }
+inline Pattern V(std::size_t idx) { Pattern p = Pattern::node(NodeKind::Var, {}); p.var_index = idx; return p; }
 
 // Unary builders
 inline Pattern neg(const Pattern& a) { return Pattern::node(NodeKind::Neg, {a}); }
@@ -56,4 +61,3 @@ inline int specificity(const Pattern& p) {
 }
 
 } } // namespace et::pat
-

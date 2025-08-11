@@ -5,6 +5,9 @@
 #include <utility>
 #include <type_traits>
 #include <algorithm>
+#include <functional>
+#include <limits>
+#include <cmath>
 
 #include "et/expr.hpp"
 
@@ -79,6 +82,33 @@ inline bool r_equal(const RGraph& g, int a, int b) {
   for (std::size_t i = 0; i < na.ch.size(); ++i)
     if (!r_equal(g, na.ch[i], nb.ch[i])) return false;
   return true;
+}
+
+// Evaluate runtime graph numerically given input vector (by var_index)
+inline double eval(const RGraph& g, const std::vector<double>& inputs) {
+  std::vector<double> memo(g.nodes.size(), std::numeric_limits<double>::quiet_NaN());
+  std::function<double(int)> rec = [&](int id) -> double {
+    double& slot = memo[id];
+    if (slot == slot) return slot; // not NaN => already computed
+    const RNode& n = g.nodes[id];
+    switch (n.kind) {
+      case NodeKind::Const: slot = n.cval; break;
+      case NodeKind::Var:   slot = inputs[n.var_index]; break;
+      case NodeKind::Add:   slot = rec(n.ch[0]); for (std::size_t i=1;i<n.ch.size();++i) slot += rec(n.ch[i]); break;
+      case NodeKind::Mul:   slot = rec(n.ch[0]); for (std::size_t i=1;i<n.ch.size();++i) slot *= rec(n.ch[i]); break;
+      case NodeKind::Sub:   slot = rec(n.ch[0]) - rec(n.ch[1]); break;
+      case NodeKind::Div:   slot = rec(n.ch[0]) / rec(n.ch[1]); break;
+      case NodeKind::Neg:   slot = -rec(n.ch[0]); break;
+      case NodeKind::Sin:   slot = std::sin(rec(n.ch[0])); break;
+      case NodeKind::Cos:   slot = std::cos(rec(n.ch[0])); break;
+      case NodeKind::Exp:   slot = std::exp(rec(n.ch[0])); break;
+      case NodeKind::Log:   slot = std::log(rec(n.ch[0])); break;
+      case NodeKind::Sqrt:  slot = std::sqrt(rec(n.ch[0])); break;
+      case NodeKind::Tanh:  slot = std::tanh(rec(n.ch[0])); break;
+    }
+    return slot;
+  };
+  return rec(g.root);
 }
 
 // Specialized creators for leaves to avoid needing runtime info about Var template index
