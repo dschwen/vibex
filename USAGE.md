@@ -160,12 +160,12 @@ std::vector<double> inputs = {2.4, 6.0, 1.1}; // x,y,z
 double out = tape.forward(root, inputs);
 ```
 
-### Reverse-mode (VJP)
+### Reverse-mode (Backward)
 
-`vjp(root, inputs, seed)` back-propagates a scalar seed (usually 1.0) to produce partials wrt inputs:
+`backward(inputs)` back-propagates to produce partials wrt inputs:
 
 ```cpp
-std::vector<double> grad = tape.vjp(root, inputs, /*seed=*/1.0);
+std::vector<double> grad = tape.backward(inputs);
 // grad[0] = d f / d x  at inputs
 // grad[1] = d f / d y
 // grad[2] = d f / d z
@@ -303,7 +303,7 @@ int main() {
 
   std::vector<double> in = {2.4, 6.0, 1.1};
   double val = tape.forward(h, in);        // numeric value of d f / d x at inputs
-  auto grad = tape.vjp(h, in, 1.0);        // gradient wrt (x,y,z) of d f / d x (here mostly 0 except x chain)
+  auto grad = tape.backward(in);           // gradient wrt (x,y,z) of d f / d x (here mostly 0 except x chain)
 
   (void)val; (void)grad;
 }

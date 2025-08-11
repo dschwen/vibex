@@ -55,7 +55,7 @@ int main() {
     assert(approx(got, expected));
   }
 
-  // 4) Tape backend: forward + VJP vs analytic gradient
+  // 4) Tape backend: forward + backward vs analytic gradient
   {
     TapeBackend tb(3);
     int root = compile_hash_cse(f, tb);
@@ -66,7 +66,7 @@ int main() {
     double forward_val = tb.tape.forward(in);
     assert(approx(forward_val, forward_ref));
 
-    auto grad = tb.tape.vjp(in);
+    auto grad = tb.tape.backward(in);
     double gx = std::cos(in[0]) * in[1];
     double gy = std::sin(in[0]);
     double gz = 2.0 * in[2];

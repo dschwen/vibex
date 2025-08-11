@@ -14,7 +14,7 @@ int main() {
 
   std::vector<double> inputs = {2.4, 6.0, 1.5};
   double v = TB.tape.forward(inputs);
-  auto g = TB.tape.vjp(inputs);
+  auto g = TB.tape.backward(inputs);
 
   std::cout << "f(2.4,6,1.5) = " << v << "\n";
   std::cout << "grad = [" << g[0] << ", " << g[1] << ", " << g[2] << "]\n";

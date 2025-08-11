@@ -173,7 +173,7 @@ is overloaded for `Var`, `Const`, and `Apply<Op,Children...>`. For `Apply`, it r
 
 - Compiles IR to a **topologically sorted tape** with a tiny `enum Kind` and child indices.
 - `forward(inputs)` computes the primal value.
-- `vjp(inputs)` computes **dOutput/dInputs** using one backward sweep with locally coded VJPs (vector-Jacobian products).
+- `backward(inputs)` computes **dOutput/dInputs** using one backward sweep with locally coded VJPs (vector-Jacobian products).
 
 **Why a tape when we already have symbolic AD?**
 - For runtime-critical repeated eval/grad of the **same expression shape**, tape has lower constant factors than compiling and evaluating a symbolic derivative tree.

@@ -45,7 +45,7 @@ struct Tape {
     return val[output_id];
   }
 
-  std::vector<double> vjp(const std::vector<double>& inputs) const {
+  std::vector<double> backward(const std::vector<double>& inputs) const {
     const int N = (int)nodes.size();
     std::vector<double> val(N), bar(N, 0.0);
     for (int i = 0; i < N; ++i) {
