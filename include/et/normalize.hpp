@@ -42,7 +42,16 @@ struct ChildKey {
 };
 
 inline bool child_less(const ChildKey& a, const ChildKey& b) {
-  if (a.kind != b.kind) return a.kind < b.kind;
+  auto rank = [](NodeKind k) {
+    switch (k) {
+      case NodeKind::Const: return 0;
+      case NodeKind::Var:   return 1;
+      default:              return 2 + static_cast<int>(k);
+    }
+  };
+  int ra = rank(a.kind);
+  int rb = rank(b.kind);
+  if (ra != rb) return ra < rb;
   if (a.h != b.h) return a.h < b.h;
   return a.id < b.id;
 }
