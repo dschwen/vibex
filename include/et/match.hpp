@@ -47,10 +47,13 @@ inline bool match_ac(const RGraph& g, const RNode& n, const pat::Pattern& p, Bin
       auto b_snapshot = b; auto mb_snapshot = mb;
       if (match_node(g, cand, pc, b, mb)) {
         // consume cand
-        int last = remaining.back(); remaining[r] = last; remaining.pop_back();
+        int last = remaining.back();
+        remaining[r] = last;
+        remaining.pop_back();
         if (dfs(i+1)) return true;
         // backtrack
-        remaining.push_back(last); // restore size; position will be re-evaluated safely as we return
+        remaining.push_back(last);
+        remaining[r] = cand;
       }
       b = std::move(b_snapshot); mb = std::move(mb_snapshot);
     }
