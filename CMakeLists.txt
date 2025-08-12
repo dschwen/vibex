@@ -116,6 +116,14 @@ if(BUILD_TESTING)
   target_link_libraries(et_tests_poly_factor PRIVATE et)
   add_test(NAME et_poly_factor COMMAND et_tests_poly_factor)
 
+  add_executable(et_tests_compile_runtime_tape tests/test_compile_runtime_and_tape.cpp)
+  target_link_libraries(et_tests_compile_runtime_tape PRIVATE et)
+  add_test(NAME et_compile_runtime_tape COMMAND et_tests_compile_runtime_tape)
+
+  add_executable(et_tests_compile_hash_cse tests/test_compile_hash_cse.cpp)
+  target_link_libraries(et_tests_compile_hash_cse PRIVATE et)
+  add_test(NAME et_compile_hash_cse COMMAND et_tests_compile_hash_cse)
+
   if(ET_WITH_TORCH AND ET_BUILD_TORCH_TESTS)
     find_package(Torch REQUIRED)
     add_executable(et_torch_tests tests/test_torch.cpp)
@@ -153,14 +161,32 @@ if(ET_ENABLE_COVERAGE)
   if(GCOVR_CMD)
     message(STATUS "Using gcovr command: ${GCOVR_CMD}")
     add_custom_target(coverage
+      # Run unit tests
       COMMAND ${CMAKE_CTEST_COMMAND} --test-dir ${CMAKE_BINARY_DIR} -V
+      # Also run examples to exercise additional code paths
+      COMMAND $<TARGET_FILE:01_basic_eval>
+      COMMAND $<TARGET_FILE:02_symbolic_diff>
+      COMMAND $<TARGET_FILE:03_simplify>
+      COMMAND $<TARGET_FILE:04_tape_ad>
+      COMMAND $<TARGET_FILE:06_ops_and_cse>
+      COMMAND $<TARGET_FILE:07_hash_cse>
+      COMMAND $<TARGET_FILE:08_rewrite_rules>
+      COMMAND $<TARGET_FILE:09_rewrite_nested>
       COMMAND ${CMAKE_COMMAND} -E make_directory coverage
-      COMMAND ${GCOVR_CMD} -r ${CMAKE_SOURCE_DIR}
-              --exclude '.*tests/.*' --exclude '.*examples/.*'
+      COMMAND ${GCOVR_CMD} -r ${CMAKE_SOURCE_DIR} --object-directory ${CMAKE_BINARY_DIR}
+              --exclude '.*tests/.*' --exclude '.*build.*/_deps/.*'
+              --gcov-exclude-directories '.*/build/.*' --gcov-exclude-directories '.*/build_rename/.*'
               --print-summary --xml coverage/coverage.xml
               --html-details coverage/index.html
       WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-      COMMENT "Running tests and generating coverage report with gcovr"
+      COMMENT "Running tests/examples and generating coverage report with gcovr"
+      DEPENDS
+        01_basic_eval 02_symbolic_diff 03_simplify 04_tape_ad
+        06_ops_and_cse 07_hash_cse 08_rewrite_rules 09_rewrite_nested
+        et_tests_core et_tests_ops et_tests_binary et_tests_simplify
+        et_tests_cse et_tests_runtime et_tests_normalize et_tests_pattern
+        et_tests_rewrite et_tests_rewrite_large et_tests_rewrite_nested_large
+        et_tests_poly_factor et_tests_compile_runtime_tape et_tests_compile_hash_cse
     )
   else()
     add_custom_target(coverage

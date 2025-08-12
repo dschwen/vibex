@@ -46,7 +46,15 @@ inline std::vector<Rule> default_rules() {
     /*lhs=*/ pat::add(pat::mul(P(1), P(2)), pat::mul(P(1), P(3))),
     /*rhs=*/ pat::mul(P(1), pat::add(P(2), P(3))),
     /*guard=*/ {},
-    /*name=*/ "factor_common_left", /*priority=*/ 4
+    /*name=*/ "factor_common_left", /*priority=*/ 3
+  });
+
+  // Distributive factoring with rest: a*b + a*c + R... -> a*(b+c) + R...
+  rs.push_back(Rule{
+    /*lhs=*/ pat::Pattern::node(NodeKind::Add, { pat::mul(P(9), P(2)), pat::mul(P(9), P(3)), S(8) }),
+    /*rhs=*/ pat::Pattern::node(NodeKind::Add, { pat::mul(P(9), pat::add(P(2), P(3))), S(8) }),
+    /*guard=*/ {},
+    /*name=*/ "factor_common_with_rest", /*priority=*/ 3
   });
 
   // Square completion / factorization rules
@@ -105,7 +113,7 @@ inline std::vector<Rule> default_rules() {
       auto is_const = [&](int pid){ auto it=b.find(pid); return it!=b.end() && g.nodes[it->second].kind==NodeKind::Const; };
       return is_const(2) && is_const(3);
     },
-    /*name=*/ "like_terms_add", /*priority=*/ 3
+    /*name=*/ "like_terms_add", /*priority=*/ 7
   });
 
   // Like-term merging with rest: (k1*x) + (k2*x) + R... -> (k1+k2)*x + R...
@@ -116,7 +124,7 @@ inline std::vector<Rule> default_rules() {
       auto is_const = [&](int pid){ auto it=b.find(pid); return it!=b.end() && g.nodes[it->second].kind==NodeKind::Const; };
       return is_const(2) && is_const(3);
     },
-    /*name=*/ "like_terms_add_rest", /*priority=*/ 3
+    /*name=*/ "like_terms_add_rest", /*priority=*/ 7
   });
 
   return rs;

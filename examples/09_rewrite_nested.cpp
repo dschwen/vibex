@@ -25,8 +25,17 @@ int main() {
   std::cout << "Before: " << r_to_string(g0) << "\n";
 
   auto rules = default_rules();
-  RGraph gr = rewrite_fixed_point(g0, rules, 10);
-  gr = normalize(gr);
+
+  // Show intermediate passes
+  RGraph pass = g0;
+  for (int i = 0; i < 6; ++i) {
+    RGraph next = apply_rules_once(pass, rules);
+    next = normalize(next);
+    std::cout << "Pass " << i+1 << ": " << r_to_string(next) << "\n";
+    if (r_equal(next, next.root, pass.root)) { pass = next; break; }
+    pass = next;
+  }
+  RGraph gr = pass;
   std::cout << "After:  " << r_to_string(gr) << "\n";
 
   std::vector<double> in = {0.7,0.9,-0.3,1.1,-0.4,0.2,0.5,0.8};
@@ -36,4 +45,3 @@ int main() {
   std::cout << "Eval rewritten: " << v1 << "\n";
   return 0;
 }
-
