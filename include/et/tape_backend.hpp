@@ -9,7 +9,7 @@
 namespace et {
 
 struct Tape {
-  enum Kind : uint8_t { KVar, KConst, KAdd, KSub, KMul, KDiv, KNeg, KSin, KExp, KLog, KSqrt, KTanh, KCos };
+  enum Kind : uint8_t { KVar, KConst, KAdd, KSub, KMul, KDiv, KPow, KNeg, KSin, KExp, KLog, KSqrt, KTanh, KCos };
 
   struct Node {
     Kind kind;
@@ -33,6 +33,7 @@ struct Tape {
         case KSub:  val[i] = val[n.a] - val[n.b]; break;
         case KMul:  val[i] = val[n.a] * val[n.b]; break;
         case KDiv:  val[i] = val[n.a] / val[n.b]; break;
+        case KPow:  val[i] = std::pow(val[n.a], val[n.b]); break;
         case KNeg:  val[i] = -val[n.a]; break;
         case KSin:  val[i] = std::sin(val[n.a]); break;
         case KExp:  val[i] = std::exp(val[n.a]); break;
@@ -88,6 +89,11 @@ struct Tape {
           bar[n.a] += bar[i] / val[n.b];
           bar[n.b] -= bar[i] * val[n.a] / (val[n.b] * val[n.b]);
           break;
+        case KPow: {
+          double f = std::pow(val[n.a], val[n.b]);
+          bar[n.a] += bar[i] * f * (val[n.b] / val[n.a]);
+          bar[n.b] += bar[i] * f * std::log(val[n.a]);
+          break; }
         case KNeg:
           bar[n.a] -= bar[i];
           break;
@@ -116,7 +122,7 @@ struct Tape {
     for (auto& n : nodes) if (n.kind == KVar) arity = std::max(arity, n.var_index+1);
     std::vector<double> grad(arity, 0.0);
     for (int i = 0; i < N; ++i)
-      if (nodes[i].kind == KVar) grad[nodes[i].var_index] = bar[i];
+      if (nodes[i].kind == KVar) grad[nodes[i].var_index] += bar[i];
     return grad;
   }
 };
@@ -164,6 +170,7 @@ struct TapeBackend {
     else if constexpr (std::is_same<Op, SubOp>::value) n.kind = Tape::KSub;
     else if constexpr (std::is_same<Op, MulOp>::value) n.kind = Tape::KMul;
     else if constexpr (std::is_same<Op, DivOp>::value) n.kind = Tape::KDiv;
+    else if constexpr (std::is_same<Op, PowOp>::value) n.kind = Tape::KPow;
     else static_assert(!std::is_same<Op,Op>::value, "Binary op not mapped to Tape");
     n.a = a; n.b = b;
     tape.nodes.push_back(n);

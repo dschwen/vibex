@@ -44,6 +44,9 @@ target_link_libraries(06_ops_and_cse PRIVATE et)
 add_executable(07_hash_cse examples/07_hash_cse.cpp)
 target_link_libraries(07_hash_cse PRIVATE et)
 
+add_executable(08_rewrite_rules examples/08_rewrite_rules.cpp)
+target_link_libraries(08_rewrite_rules PRIVATE et)
+
 if(ET_WITH_TORCH AND ET_BUILD_TORCH_EXAMPLES)
   find_package(Torch REQUIRED)
   add_executable(05_torchjit examples/05_torchjit.cpp)
@@ -80,6 +83,31 @@ if(BUILD_TESTING)
   add_executable(et_tests_cse tests/test_cse.cpp)
   target_link_libraries(et_tests_cse PRIVATE et)
   add_test(NAME et_cse COMMAND et_tests_cse)
+
+  # New tests: runtime AST and normalization
+  add_executable(et_tests_runtime tests/test_runtime.cpp)
+  target_link_libraries(et_tests_runtime PRIVATE et)
+  add_test(NAME et_runtime COMMAND et_tests_runtime)
+
+  add_executable(et_tests_normalize tests/test_normalize.cpp)
+  target_link_libraries(et_tests_normalize PRIVATE et)
+  add_test(NAME et_normalize COMMAND et_tests_normalize)
+
+  add_executable(et_tests_pattern tests/test_pattern_match.cpp)
+  target_link_libraries(et_tests_pattern PRIVATE et)
+  add_test(NAME et_pattern COMMAND et_tests_pattern)
+
+  add_executable(et_tests_rewrite tests/test_rewrite.cpp)
+  target_link_libraries(et_tests_rewrite PRIVATE et)
+  add_test(NAME et_rewrite COMMAND et_tests_rewrite)
+
+  add_executable(et_tests_rewrite_large tests/test_rewrite_large.cpp)
+  target_link_libraries(et_tests_rewrite_large PRIVATE et)
+  add_test(NAME et_rewrite_large COMMAND et_tests_rewrite_large)
+
+  add_executable(et_tests_poly_factor tests/test_poly_factor.cpp)
+  target_link_libraries(et_tests_poly_factor PRIVATE et)
+  add_test(NAME et_poly_factor COMMAND et_tests_poly_factor)
 
   if(ET_WITH_TORCH AND ET_BUILD_TORCH_TESTS)
     find_package(Torch REQUIRED)

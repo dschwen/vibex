@@ -9,6 +9,7 @@
 
 - **Single, tiny IR** for math expressions built with normal C++ operators (expression templates).
 - **Symbolic AD** that returns an expression tree, so the same infrastructure can compile the gradient to any backend.
+- **Algebraic rewrite system** for normalization and rule-based simplification.
 - **Modularity by construction:** add an operation (`Op`) once; evaluation, AD, simplification, and all backends see it with minimal glue.
 - **No runtime polymorphism** in the IR. Nodes are simple templates; composition is resolved at compile-time.
 - **Backend plug-ins** via a single `compile(expr, backend)` visitor function. Backends implement `emitVar`, `emitConst`, `emitApply` overloads.
@@ -23,6 +24,12 @@ Trade-off: a templated IR yields large types and deep instantiations. We mitigat
 ```
 include/et/expr.hpp            # Core IR, ops, evaluation, AD, compile visitor, Vars, grad helpers
 include/et/simplify.hpp        # Tiny algebraic simplifier (constant folding + neutral/annihilator rules)
+include/et/runtime_ast.hpp     # Runtime AST backing the rewrite system
+include/et/normalize.hpp       # AC normalization utilities for Add/Mul
+include/et/pattern.hpp         # Pattern DSL for rewrite rules
+include/et/match.hpp           # Structural matcher with placeholders
+include/et/rewrite.hpp         # Fixed-point rewrite driver
+include/et/rules_default.hpp   # Built-in rule set (neutral, trig, etc.)
 include/et/tape_backend.hpp    # Reverse-mode tape backend (forward eval + VJP gradient)
 include/et/torch_jit_backend.hpp  # TorchScript backend (optional; -DET_WITH_TORCH)
 examples/                      # Small programs exercising the API and backends
@@ -252,6 +259,9 @@ If you need cross-type unification (e.g., `int` + `double` → `double`), prefer
 - **03_simplify.cpp** — Simplify the derivative and evaluate.
 - **04_tape_ad.cpp** — Compile to a reverse-mode tape and compute value + gradient via VJP.
 - **05_torchjit.cpp** — (Optional) Lower the expression to a TorchScript graph and print it.
+- **06_ops_and_cse.cpp** — Add new operations and exercise structural CSE.
+- **07_hash_cse.cpp** — Faster hash-based CSE variant.
+- **08_rewrite_rules.cpp** — Algebraic rewrite rules and normalization.
 
 ---
 

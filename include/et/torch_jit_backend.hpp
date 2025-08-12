@@ -58,6 +58,7 @@ struct TorchJITBackend {
     else if constexpr (std::is_same<Op, SubOp>::value) return mk("aten::sub", a, b);
     else if constexpr (std::is_same<Op, MulOp>::value) return mk("aten::mul", a, b);
     else if constexpr (std::is_same<Op, DivOp>::value) return mk("aten::div", a, b);
+    else if constexpr (std::is_same<Op, PowOp>::value) return mk("aten::pow", a, b);
     else static_assert(!std::is_same<Op,Op>::value, "Binary op not mapped to Torch JIT");
   }
 };

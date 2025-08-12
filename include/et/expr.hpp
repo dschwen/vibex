@@ -107,6 +107,13 @@ struct DivOp {
   template <std::size_t I, class ANode, class BNode>
   static auto d(const ANode& a, const BNode& b);
 };
+struct PowOp {
+  static constexpr std::size_t arity = 2;
+  template <class A, class B> static constexpr auto eval(A&& a, B&& b)
+  -> decltype(std::pow(std::forward<A>(a), std::forward<B>(b))) { using std::pow; return pow(std::forward<A>(a), std::forward<B>(b)); }
+  template <std::size_t I, class ANode, class BNode>
+  static auto d(const ANode& a, const BNode& b);
+};
 struct NegOp {
   static constexpr std::size_t arity = 1;
   template <class A> static constexpr auto eval(A&& a)
@@ -199,6 +206,10 @@ constexpr auto sqrt(A a) { return Apply<SqrtOp, std::decay_t<A>>(std::move(a)); 
 template <class A, std::enable_if_t<is_node_t<A>::value, int> = 0>
 constexpr auto tanh(A a) { return Apply<TanhOp, std::decay_t<A>>(std::move(a)); }
 
+// Power wrapper (only when at least one side is an ET node)
+template <class L, class R, std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
+constexpr auto pow(L l, R r) { return Apply<PowOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
+
 //===========================
 // Automatic differentiation
 //===========================
@@ -262,6 +273,17 @@ inline auto DivOp::d(const ANode& a, const BNode& b) {
                Apply<MulOp, ANode, decltype(db)>(a, std::move(db)) );
   auto den = Apply<MulOp, BNode, BNode>(b, b);
   return Apply<DivOp, decltype(num), decltype(den)>(std::move(num), std::move(den));
+}
+template <std::size_t I, class ANode, class BNode>
+inline auto PowOp::d(const ANode& a, const BNode& b) {
+  // d(a^b) = a^b * ( db*log(a) + b * da/a )
+  auto da = diff(a, std::integral_constant<std::size_t,I>{});
+  auto db = diff(b, std::integral_constant<std::size_t,I>{});
+  auto apowb = Apply<PowOp, ANode, BNode>(a, b);
+  auto term1 = Apply<MulOp, decltype(db), Apply<LogOp, ANode>>( std::move(db), Apply<LogOp, ANode>(a) );
+  auto term2 = Apply<MulOp, BNode, Apply<DivOp, decltype(da), ANode>>( b, Apply<DivOp, decltype(da), ANode>( std::move(da), a ) );
+  auto sum   = Apply<AddOp, decltype(term1), decltype(term2)>( std::move(term1), std::move(term2) );
+  return Apply<MulOp, decltype(apowb), decltype(sum)>( std::move(apowb), std::move(sum) );
 }
 template <std::size_t I, class X>
 inline auto NegOp::d(const X& x) {

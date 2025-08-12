@@ -57,31 +57,56 @@ int main() {
 
   // 4) Tape backend: forward + backward vs analytic gradient
   {
-    TapeBackend tb(3);
-    int root = compile_hash_cse(f, tb);
-    tb.tape.output_id = root;
-
-    std::vector<double> in = {1.2, 2.0, 0.3};
-    double forward_ref = std::sin(in[0]) * in[1] + in[2] * in[2];
-    double forward_val = tb.tape.forward(in);
-    assert(approx(forward_val, forward_ref));
-
-    auto grad = tb.tape.backward(in);
-    double gx = std::cos(in[0]) * in[1];
-    double gy = std::sin(in[0]);
-    double gz = 2.0 * in[2];
-    assert(grad.size() == 3);
-    assert(approx(grad[0], gx));
-    assert(approx(grad[1], gy));
-    assert(approx(grad[2], gz));
+    // With CSE
+    {
+      TapeBackend tb(3);
+      int root = compile_hash_cse(f, tb);
+      tb.tape.output_id = root;
+      std::vector<double> in = {1.2, 2.0, 0.3};
+      double forward_ref = std::sin(in[0]) * in[1] + in[2] * in[2];
+      double forward_val = tb.tape.forward(in);
+      assert(approx(forward_val, forward_ref));
+      auto grad = tb.tape.backward(in);
+      double gx = std::cos(in[0]) * in[1];
+      double gy = std::sin(in[0]);
+      double gz = 2.0 * in[2];
+      assert(grad.size() == 3);
+      assert(approx(grad[0], gx));
+      assert(approx(grad[1], gy));
+      assert(approx(grad[2], gz));
+    }
+    // Without CSE (separate var nodes) — catches aggregation bug
+    {
+      TapeBackend tb(3);
+      int root = compile(f, tb);
+      tb.tape.output_id = root;
+      std::vector<double> in = {0.7, 1.1, 1.5};
+      double forward_ref = std::sin(in[0]) * in[1] + in[2] * in[2];
+      double forward_val = tb.tape.forward(in);
+      assert(approx(forward_val, forward_ref));
+      auto grad = tb.tape.backward(in);
+      double gx = std::cos(in[0]) * in[1];
+      double gy = std::sin(in[0]);
+      double gz = 2.0 * in[2];
+      assert(approx(grad[0], gx));
+      assert(approx(grad[1], gy));
+      assert(approx(grad[2], gz));
+    }
 
     // Finite-difference cross-check for all partials
-    double fd_gx = fd_partial3(f, in, 0);
-    double fd_gy = fd_partial3(f, in, 1);
-    double fd_gz = fd_partial3(f, in, 2);
-    assert(approx(grad[0], fd_gx, 1e-6));
-    assert(approx(grad[1], fd_gy, 1e-6));
-    assert(approx(grad[2], fd_gz, 1e-6));
+    {
+      TapeBackend tb(3);
+      int root = compile_hash_cse(f, tb);
+      tb.tape.output_id = root;
+      std::vector<double> in = {1.2, 2.0, 0.3};
+      auto gvec = tb.tape.backward(in);
+      double fd_gx = fd_partial3(f, in, 0);
+      double fd_gy = fd_partial3(f, in, 1);
+      double fd_gz = fd_partial3(f, in, 2);
+      assert(approx(gvec[0], fd_gx, 1e-6));
+      assert(approx(gvec[1], fd_gy, 1e-6));
+      assert(approx(gvec[2], fd_gz, 1e-6));
+    }
   }
 
   // 5) CSE sanity: sin(x) + sin(x) compiles shared subexprs
