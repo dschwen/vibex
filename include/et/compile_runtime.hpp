@@ -21,20 +21,7 @@ inline auto compile_runtime(const RGraph& g, Backend& b) -> typename Backend::re
         return b.template emitConst<double>(Const<double>{ static_cast<double>(n.cval) });
       }
       case NodeKind::Var: {
-        // Reify as Var<double,I>
-        switch (n.var_index) {
-          case 0:  return b.template emitVar<double,0>(Var<double,0>{});
-          case 1:  return b.template emitVar<double,1>(Var<double,1>{});
-          case 2:  return b.template emitVar<double,2>(Var<double,2>{});
-          case 3:  return b.template emitVar<double,3>(Var<double,3>{});
-          case 4:  return b.template emitVar<double,4>(Var<double,4>{});
-          case 5:  return b.template emitVar<double,5>(Var<double,5>{});
-          case 6:  return b.template emitVar<double,6>(Var<double,6>{});
-          case 7:  return b.template emitVar<double,7>(Var<double,7>{});
-          case 8:  return b.template emitVar<double,8>(Var<double,8>{});
-          case 9:  return b.template emitVar<double,9>(Var<double,9>{});
-          default: return b.template emitVar<double,0>(Var<double,0>{});
-        }
+        return b.template emitVar<double>(n.var_index);
       }
       case NodeKind::Neg: {
         auto a = rec(n.ch[0]);

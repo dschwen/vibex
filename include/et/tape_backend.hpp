@@ -133,9 +133,9 @@ struct TapeBackend {
 
   explicit TapeBackend(std::size_t /*arity*/) { tape.nodes.reserve(64); }
 
-  template <class T, std::size_t I>
-  result_type emitVar(Var<T,I>) {
-    Tape::Node n; n.kind = Tape::KVar; n.var_index = I;
+  template <class T>
+  result_type emitVar(std::size_t idx) {
+    Tape::Node n; n.kind = Tape::KVar; n.var_index = idx;
     tape.nodes.push_back(n);
     return (int)tape.nodes.size() - 1;
   }

@@ -371,8 +371,8 @@ auto compile(const Expr& e, Backend& b) -> typename Backend::result_type;
 
 // Specializations:
 template <class Backend, class T, std::size_t I>
-auto compile(const Var<T,I>& v, Backend& b) -> typename Backend::result_type {
-  return b.template emitVar<T,I>(v);
+auto compile(const Var<T,I>&, Backend& b) -> typename Backend::result_type {
+  return b.template emitVar<T>(I);
 }
 template <class Backend, class T>
 auto compile(const Const<T>& c, Backend& b) -> typename Backend::result_type {
