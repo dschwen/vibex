@@ -47,6 +47,9 @@ target_link_libraries(07_hash_cse PRIVATE et)
 add_executable(08_rewrite_rules examples/08_rewrite_rules.cpp)
 target_link_libraries(08_rewrite_rules PRIVATE et)
 
+add_executable(09_rewrite_nested examples/09_rewrite_nested.cpp)
+target_link_libraries(09_rewrite_nested PRIVATE et)
+
 if(ET_WITH_TORCH AND ET_BUILD_TORCH_EXAMPLES)
   find_package(Torch REQUIRED)
   add_executable(05_torchjit examples/05_torchjit.cpp)
@@ -104,6 +107,10 @@ if(BUILD_TESTING)
   add_executable(et_tests_rewrite_large tests/test_rewrite_large.cpp)
   target_link_libraries(et_tests_rewrite_large PRIVATE et)
   add_test(NAME et_rewrite_large COMMAND et_tests_rewrite_large)
+
+  add_executable(et_tests_rewrite_nested_large tests/test_rewrite_nested_large.cpp)
+  target_link_libraries(et_tests_rewrite_nested_large PRIVATE et)
+  add_test(NAME et_rewrite_nested_large COMMAND et_tests_rewrite_nested_large)
 
   add_executable(et_tests_poly_factor tests/test_poly_factor.cpp)
   target_link_libraries(et_tests_poly_factor PRIVATE et)
