@@ -140,6 +140,10 @@ if(BUILD_TESTING)
   target_link_libraries(et_tests_normalize_sub PRIVATE et)
   add_test(NAME et_normalize_sub COMMAND et_tests_normalize_sub)
 
+  add_executable(et_tests_normalize_edges tests/test_normalize_edges.cpp)
+  target_link_libraries(et_tests_normalize_edges PRIVATE et)
+  add_test(NAME et_normalize_edges COMMAND et_tests_normalize_edges)
+
   if(ET_WITH_TORCH AND ET_BUILD_TORCH_TESTS)
     find_package(Torch REQUIRED)
     add_executable(et_torch_tests tests/test_torch.cpp)
@@ -204,7 +208,7 @@ if(ET_ENABLE_COVERAGE)
         et_tests_rewrite et_tests_rewrite_large et_tests_rewrite_nested_large
         et_tests_poly_factor et_tests_compile_runtime_tape et_tests_compile_hash_cse
         et_tests_compile_runtime_var_indices et_tests_match_edgecases et_tests_rules_guards
-        et_tests_normalize_sub
+        et_tests_normalize_sub et_tests_normalize_edges
     )
   else()
     add_custom_target(coverage
