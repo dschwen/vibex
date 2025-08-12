@@ -22,4 +22,4 @@ Vibex is a **header-only C++ expression template engine** for building, simplify
 
 Whether you’re building a symbolic math library, optimizing DSLs, or just want to see how far you can push C++ metaprogramming without losing your mind, Vibex keeps the vibes high and the compile times… reasonable.
 
-See `DESIGN_REWRITE.md` for details on the rewrite engine, `examples/08_rewrite_rules.cpp` for a basic demo, and `examples/09_rewrite_nested.cpp` for a larger nested placeholder rewrite example.
+See `DESIGN_REWRITE.md` for details on the rewrite engine, `examples/08_rewrite_rules.cpp` for a basic demo using `optimize()`, and `examples/09_rewrite_nested.cpp` for a larger nested placeholder rewrite example (shows per-pass states and a denormalized Pretty form).
