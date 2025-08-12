@@ -132,6 +132,14 @@ if(BUILD_TESTING)
   target_link_libraries(et_tests_match_edgecases PRIVATE et)
   add_test(NAME et_match_edgecases COMMAND et_tests_match_edgecases)
 
+  add_executable(et_tests_rules_guards tests/test_rules_guards.cpp)
+  target_link_libraries(et_tests_rules_guards PRIVATE et)
+  add_test(NAME et_rules_guards COMMAND et_tests_rules_guards)
+
+  add_executable(et_tests_normalize_sub tests/test_normalize_sub.cpp)
+  target_link_libraries(et_tests_normalize_sub PRIVATE et)
+  add_test(NAME et_normalize_sub COMMAND et_tests_normalize_sub)
+
   if(ET_WITH_TORCH AND ET_BUILD_TORCH_TESTS)
     find_package(Torch REQUIRED)
     add_executable(et_torch_tests tests/test_torch.cpp)
@@ -195,7 +203,8 @@ if(ET_ENABLE_COVERAGE)
         et_tests_cse et_tests_runtime et_tests_normalize et_tests_pattern
         et_tests_rewrite et_tests_rewrite_large et_tests_rewrite_nested_large
         et_tests_poly_factor et_tests_compile_runtime_tape et_tests_compile_hash_cse
-        et_tests_compile_runtime_var_indices et_tests_match_edgecases
+        et_tests_compile_runtime_var_indices et_tests_match_edgecases et_tests_rules_guards
+        et_tests_normalize_sub
     )
   else()
     add_custom_target(coverage
