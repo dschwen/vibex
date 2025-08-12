@@ -213,8 +213,11 @@ inline RGraph normalize(const RGraph& src) {
   return dst;
 }
 
-// Optional pretty-print denormalization: turn Add(a,Neg(b)) with exactly 2 terms back into Sub(a,b).
-// Also handles Add(x, Const(-k)) -> Sub(x, Const(k)) when exactly 2 terms.
+// Optional pretty-print denormalization:
+// - If Add has exactly 2 terms and matches Add(a,Neg(b)) -> Sub(a,b).
+// - If Add has N terms where N-1 are negated and 1 is not, convert to Sub(pos, Add(others_stripped)).
+// - If all N terms are negated, pull out a Neg: Neg(Add(stripped_terms)).
+// - Also handles negative constants as negated terms.
 inline RGraph denormalize_sub(const RGraph& src) {
   RGraph dst;
   dst.nodes.reserve(src.nodes.size());
@@ -232,30 +235,57 @@ inline RGraph denormalize_sub(const RGraph& src) {
     std::vector<int> ch; ch.reserve(n.ch.size());
     for (int cid : n.ch) ch.push_back(rec(cid));
 
-    if (n.kind == NodeKind::Add && ch.size() == 2) {
-      const RNode& a = dst.nodes[ch[0]];
-      const RNode& b = dst.nodes[ch[1]];
+    if (n.kind == NodeKind::Add) {
+      // Classify children as positive vs negated; strip neg for the latter.
+      std::vector<int> pos; pos.reserve(ch.size());
+      std::vector<int> neg; neg.reserve(ch.size());
+      for (int cid : ch) {
+        const RNode& c = dst.nodes[cid];
+        if (c.kind == NodeKind::Neg) {
+          neg.push_back(c.ch[0]);
+        } else if (c.kind == NodeKind::Const && c.cval < 0.0) {
+          RNode cp; cp.kind = NodeKind::Const; cp.cval = -c.cval; neg.push_back(dst.add(std::move(cp)));
+        } else {
+          pos.push_back(cid);
+        }
+      }
+      auto make_add = [&](const std::vector<int>& items) {
+        if (items.empty()) { RNode z; z.kind = NodeKind::Const; z.cval = 0.0; return dst.add(std::move(z)); }
+        if (items.size() == 1) return items[0];
+        RNode ad; ad.kind = NodeKind::Add; ad.ch = items; return dst.add(std::move(ad));
+      };
       auto make_sub = [&](int lhs_id, int rhs_id) {
         RNode nn; nn.kind = NodeKind::Sub; nn.ch = { lhs_id, rhs_id }; return add_node(std::move(nn));
       };
-      // Case: second is Neg(x): Sub(first, x)
-      if (b.kind == NodeKind::Neg) {
-        return make_sub(ch[0], b.ch[0]);
+      // All neg: Neg(Add(stripped))
+      if (pos.empty() && !neg.empty()) {
+        int inner = make_add(neg);
+        RNode nn; nn.kind = NodeKind::Neg; nn.ch = { inner }; return add_node(std::move(nn));
       }
-      // Case: first is Neg(x): Sub(second, x)
-      if (a.kind == NodeKind::Neg) {
-        return make_sub(ch[1], a.ch[0]);
+
+      // Exactly 2 terms: handle classic patterns
+      if (ch.size() == 2) {
+        const RNode& a = dst.nodes[ch[0]];
+        const RNode& b = dst.nodes[ch[1]];
+        if (b.kind == NodeKind::Neg) return make_sub(ch[0], b.ch[0]);
+        if (a.kind == NodeKind::Neg) return make_sub(ch[1], a.ch[0]);
+        if (b.kind == NodeKind::Const && b.cval < 0.0) {
+          RNode cp; cp.kind = NodeKind::Const; cp.cval = -b.cval; int pid = dst.add(std::move(cp));
+          return make_sub(ch[0], pid);
+        }
+        if (a.kind == NodeKind::Const && a.cval < 0.0) {
+          RNode cp; cp.kind = NodeKind::Const; cp.cval = -a.cval; int pid = dst.add(std::move(cp));
+          return make_sub(ch[1], pid);
+        }
+        // Leave as Add when no special case
+        RNode nn; nn.kind = NodeKind::Add; nn.ch = ch; return add_node(std::move(nn));
       }
-      // Case: one is negative constant
-      if (b.kind == NodeKind::Const && b.cval < 0.0) {
-        RNode cp; cp.kind = NodeKind::Const; cp.cval = -b.cval; int pid = dst.add(std::move(cp));
-        return make_sub(ch[0], pid);
+      // N terms with N-1 neg: Sub(only_pos, Add(all_neg_stripped))
+      if (pos.size() == 1 && pos.size() + neg.size() == ch.size() && !neg.empty()) {
+        int rhs = make_add(neg);
+        return make_sub(pos[0], rhs);
       }
-      if (a.kind == NodeKind::Const && a.cval < 0.0) {
-        RNode cp; cp.kind = NodeKind::Const; cp.cval = -a.cval; int pid = dst.add(std::move(cp));
-        return make_sub(ch[1], pid);
-      }
-      // Otherwise leave as Add
+      // Otherwise, rebuild Add as-is
       RNode nn; nn.kind = NodeKind::Add; nn.ch = ch; return add_node(std::move(nn));
     }
 
