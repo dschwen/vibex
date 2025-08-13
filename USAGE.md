@@ -116,8 +116,9 @@ Vibex is backend-agnostic. A backend provides a few methods and Vibex calls them
 struct MyBackend {
   using result_type = /* handle/id/type you use to refer to compiled nodes */;
 
-  template <class T, std::size_t I>
-  result_type emitVar(const Var<T,I>&);
+  // Emit a variable by runtime index (maps to input slot `idx`)
+  template <class T>
+  result_type emitVar(std::size_t idx);
 
   template <class T>
   result_type emitConst(const Const<T>&);
@@ -159,7 +160,7 @@ auto root = compile_hash_cse(f, tape);   // or compile(), compile_cse()
 ```
 
 Under the hood:
-- `emitVar<T,I>` registers a “slot” that will read from input vector position `I`, cast to `T`.
+- `emitVar<T>(idx)` registers a “slot” that will read from input vector position `idx`, cast to `T`.
 - `emitConst<T>` registers a constant slot.
 - `emitApply(Op{}, ...)` emits an opcode + child indices.
 
@@ -200,9 +201,9 @@ struct TorchBackend {
   torch::jit::Graph graph;
   torch::jit::Block* block;
 
-  template <class T, std::size_t I>
-  result_type emitVar(const Var<T,I>&) {
-    // Map Var<T,I> -> graph input I; insert casts as needed
+  template <class T>
+  result_type emitVar(std::size_t idx) {
+    // Map runtime variable index -> graph input idx; insert casts as needed
   }
 
   template <class T>
@@ -279,6 +280,29 @@ Update your backends’ `emitApply` to recognize `SoftplusOp`.
 
 ---
 
+## 7) Rewrite and Optimize
+
+The rewrite engine works over a normalized runtime AST with associative/commutative (AC) flattening and sorting for `Add`/`Mul`. For sum-like uniformity, `Sub(a,b)` is normalized to `Add(a, Neg(b))`. After rewriting to a fixed point, you can denormalize back to `Sub` in the two-term case for prettier output.
+
+- Rules: see `include/et/rules_default.hpp`.
+- Fixed-point rewrite: `rewrite_fixed_point(graph, rules)` or `rewrite_expr(expr, rules)`.
+- Convenience: `optimize(expr, rules)` or `optimize(expr)` (uses default rules).
+  - Flow: normalize → rewrite* → normalize → denormalize_sub.
+  - Examples: `examples/08_rewrite_rules.cpp` (optimize), `examples/09_rewrite_nested.cpp` (per-pass + Pretty).
+
+Quick example:
+
+```cpp
+#include "et/optimize.hpp"
+
+auto [x] = et::Vars<double,1>();
+auto e = et::sin(x)*et::sin(x) + et::cos(x)*et::cos(x) + (et::lit(2.0)*x + et::lit(3.0)*x);
+
+// optimize() runs: normalize → rewrite* → normalize → denormalize_sub
+et::RGraph g = et::optimize(e);
+std::cout << r_to_string(g) << "\n"; // Already pretty (Sub restored where applicable)
+```
+
 ## 8) Practical tips & gotchas
 
 - **Constrained operators**: Our `operator+/-/*///sin/cos/...` only participate when at least one operand is an ET node; this prevents hijacking standard operators (e.g., `iterator - int` inside `<vector>`).
@@ -288,6 +312,7 @@ Update your backends’ `emitApply` to recognize `SoftplusOp`.
 - **CSE choice**:  
   - `compile_cse` compares structural **strings** (robust, a bit heavier).  
   - `compile_hash_cse` is faster but uses hashing plus lazy structural keys only on collisions.
+- **Rewrite normalization**: Matching happens after AC normalization; subtraction is represented as `Add(..., Neg(...))` unless you denormalize back.
 - **Torch op mapping**: Some ops may require broadcasting semantics; decide whether your graph should “scalarize” or broadcast to match tensor shapes.
 
 ---

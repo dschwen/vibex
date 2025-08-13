@@ -148,11 +148,42 @@ inline RGraph normalize(const RGraph& src) {
 
     // Optional neutral simplifications for Sub/Div
     if (n.kind == NodeKind::Sub) {
-      const RNode& a = dst.nodes[ch[0]];
+      // Normalize subtraction into addition of a negated RHS: a - b -> Add(a, Neg(b))
+      // This unifies sum-like structures for AC normalization.
       const RNode& b = dst.nodes[ch[1]];
-      if (b.kind == NodeKind::Const && b.cval == 0.0) return memo[id] = ch[0];
-      if (r_equal(dst, ch[0], ch[1])) { RNode z; z.kind = NodeKind::Const; z.cval = 0.0; return add_node(std::move(z)); }
-      RNode nn; nn.kind = NodeKind::Sub; nn.ch = ch; return add_node(std::move(nn));
+      std::vector<int> terms; terms.reserve(2);
+      terms.push_back(ch[0]);
+      // Build -b with simple folding
+      if (b.kind == NodeKind::Const) {
+        RNode cn; cn.kind = NodeKind::Const; cn.cval = -b.cval; terms.push_back(dst.add(std::move(cn)));
+      } else if (b.kind == NodeKind::Neg) {
+        // a - (-x) => a + x
+        terms.push_back(b.ch[0]);
+      } else {
+        RNode nb; nb.kind = NodeKind::Neg; nb.ch = { ch[1] }; terms.push_back(dst.add(std::move(nb)));
+      }
+      // Now normalize as an Add over 'terms'
+      double csum = 0.0;
+      std::vector<int> flat; flat.reserve(terms.size());
+      for (int cid : terms) {
+        const RNode& c = dst.nodes[cid];
+        if (c.kind == NodeKind::Add) {
+          for (int gcid : c.ch) flat.push_back(gcid);
+        } else if (c.kind == NodeKind::Const) {
+          csum += c.cval;
+        } else {
+          flat.push_back(cid);
+        }
+      }
+      if (csum != 0.0) { RNode cn; cn.kind = NodeKind::Const; cn.cval = csum; flat.push_back(dst.add(std::move(cn))); }
+      if (flat.empty()) { RNode z; z.kind = NodeKind::Const; z.cval = 0.0; return add_node(std::move(z)); }
+      if (flat.size() == 1) return memo[id] = flat[0];
+      std::vector<ChildKey> keys; keys.reserve(flat.size());
+      for (int fid : flat) keys.push_back(ChildKey{fid, dst.nodes[fid].kind, r_hash(dst, fid)});
+      std::sort(keys.begin(), keys.end(), child_less);
+      std::vector<int> sorted; sorted.reserve(keys.size());
+      for (auto& k : keys) sorted.push_back(k.id);
+      RNode nn; nn.kind = NodeKind::Add; nn.ch = std::move(sorted); return add_node(std::move(nn));
     }
     if (n.kind == NodeKind::Div) {
       const RNode& a = dst.nodes[ch[0]];
@@ -166,6 +197,11 @@ inline RGraph normalize(const RGraph& src) {
     // Unary and other ops: rebuild with normalized children
     if (n.kind == NodeKind::Neg || n.kind == NodeKind::Sin || n.kind == NodeKind::Cos ||
         n.kind == NodeKind::Exp || n.kind == NodeKind::Log || n.kind == NodeKind::Sqrt || n.kind == NodeKind::Tanh) {
+      if (n.kind == NodeKind::Neg) {
+        const RNode& a = dst.nodes[ch[0]];
+        if (a.kind == NodeKind::Const) { RNode cn; cn.kind = NodeKind::Const; cn.cval = -a.cval; return add_node(std::move(cn)); }
+        if (a.kind == NodeKind::Neg)  { return memo[id] = a.ch[0]; }
+      }
       RNode nn; nn.kind = n.kind; nn.ch = ch; return add_node(std::move(nn));
     }
 
@@ -174,6 +210,89 @@ inline RGraph normalize(const RGraph& src) {
   };
 
   dst.root = norm(src.root);
+  return dst;
+}
+
+// Optional pretty-print denormalization:
+// - If Add has exactly 2 terms and matches Add(a,Neg(b)) -> Sub(a,b).
+// - If Add has N terms where N-1 are negated and 1 is not, convert to Sub(pos, Add(others_stripped)).
+// - If all N terms are negated, pull out a Neg: Neg(Add(stripped_terms)).
+// - Also handles negative constants as negated terms.
+inline RGraph denormalize_sub(const RGraph& src) {
+  RGraph dst;
+  dst.nodes.reserve(src.nodes.size());
+  std::vector<int> memo(src.nodes.size(), -1);
+  std::function<int(int)> rec = [&](int id) -> int {
+    if (memo[id] != -1) return memo[id];
+    const RNode& n = src.nodes[id];
+    auto add_node = [&](RNode nn){ return memo[id] = dst.add(std::move(nn)); };
+
+    // Leaves
+    if (n.kind == NodeKind::Const) { RNode nn; nn.kind = NodeKind::Const; nn.cval = n.cval; return add_node(std::move(nn)); }
+    if (n.kind == NodeKind::Var)   { RNode nn; nn.kind = NodeKind::Var; nn.var_index = n.var_index; return add_node(std::move(nn)); }
+
+    // Recurse children
+    std::vector<int> ch; ch.reserve(n.ch.size());
+    for (int cid : n.ch) ch.push_back(rec(cid));
+
+    if (n.kind == NodeKind::Add) {
+      // Classify children as positive vs negated; strip neg for the latter.
+      std::vector<int> pos; pos.reserve(ch.size());
+      std::vector<int> neg; neg.reserve(ch.size());
+      for (int cid : ch) {
+        const RNode& c = dst.nodes[cid];
+        if (c.kind == NodeKind::Neg) {
+          neg.push_back(c.ch[0]);
+        } else if (c.kind == NodeKind::Const && c.cval < 0.0) {
+          RNode cp; cp.kind = NodeKind::Const; cp.cval = -c.cval; neg.push_back(dst.add(std::move(cp)));
+        } else {
+          pos.push_back(cid);
+        }
+      }
+      auto make_add = [&](const std::vector<int>& items) {
+        if (items.empty()) { RNode z; z.kind = NodeKind::Const; z.cval = 0.0; return dst.add(std::move(z)); }
+        if (items.size() == 1) return items[0];
+        RNode ad; ad.kind = NodeKind::Add; ad.ch = items; return dst.add(std::move(ad));
+      };
+      auto make_sub = [&](int lhs_id, int rhs_id) {
+        RNode nn; nn.kind = NodeKind::Sub; nn.ch = { lhs_id, rhs_id }; return add_node(std::move(nn));
+      };
+      // All neg: Neg(Add(stripped))
+      if (pos.empty() && !neg.empty()) {
+        int inner = make_add(neg);
+        RNode nn; nn.kind = NodeKind::Neg; nn.ch = { inner }; return add_node(std::move(nn));
+      }
+
+      // Exactly 2 terms: handle classic patterns
+      if (ch.size() == 2) {
+        const RNode& a = dst.nodes[ch[0]];
+        const RNode& b = dst.nodes[ch[1]];
+        if (b.kind == NodeKind::Neg) return make_sub(ch[0], b.ch[0]);
+        if (a.kind == NodeKind::Neg) return make_sub(ch[1], a.ch[0]);
+        if (b.kind == NodeKind::Const && b.cval < 0.0) {
+          RNode cp; cp.kind = NodeKind::Const; cp.cval = -b.cval; int pid = dst.add(std::move(cp));
+          return make_sub(ch[0], pid);
+        }
+        if (a.kind == NodeKind::Const && a.cval < 0.0) {
+          RNode cp; cp.kind = NodeKind::Const; cp.cval = -a.cval; int pid = dst.add(std::move(cp));
+          return make_sub(ch[1], pid);
+        }
+        // Leave as Add when no special case
+        RNode nn; nn.kind = NodeKind::Add; nn.ch = ch; return add_node(std::move(nn));
+      }
+      // N terms with N-1 neg: Sub(only_pos, Add(all_neg_stripped))
+      if (pos.size() == 1 && pos.size() + neg.size() == ch.size() && !neg.empty()) {
+        int rhs = make_add(neg);
+        return make_sub(pos[0], rhs);
+      }
+      // Otherwise, rebuild Add as-is
+      RNode nn; nn.kind = NodeKind::Add; nn.ch = ch; return add_node(std::move(nn));
+    }
+
+    // Generic rebuild
+    RNode nn; nn.kind = n.kind; nn.ch = ch; nn.cval = n.cval; nn.var_index = n.var_index; return add_node(std::move(nn));
+  };
+  dst.root = rec(src.root);
   return dst;
 }
 

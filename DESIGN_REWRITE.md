@@ -41,6 +41,7 @@ This document proposes a flexible, header‑only rewrite engine for algebraic re
   - Sort children: stable by `(NodeKind, arity, hash, textual key)` for determinism.
   - Constant combine: sum/multiply all const children; drop neutral elements (`+0`, `*1`); early exit on `*0`.
   - Sign normalization: `Sub(a,b)` → `Add(a, Neg(b))` for uniformity; `Div(a,b)` kept binary.
+  - Negation folds: `Neg(Const(c)) -> Const(-c)`, `Neg(Neg(x)) -> x`.
   - Optional: merge like terms (phase 2): `(k1*x) + (k2*x)` → `(k1+k2)*x` via factor extraction.
 
 ## Pattern Language (Header‑Only)
@@ -90,6 +91,9 @@ This document proposes a flexible, header‑only rewrite engine for algebraic re
 
 - `rewrite(const Expr& e, const std::vector<Rule>& rules) -> Expr`:
   1) ET → runtime (`RGraph`), 2) normalize, 3) fixed‑point rewrite, 4) normalize again, 5) runtime → ET.
+- `optimize(const Expr& e, const std::vector<Rule>& rules, int max_passes=6) -> RGraph`:
+  1) ET → runtime (`RGraph`), 2) normalize, 3) fixed‑point rewrite, 4) normalize, 5) denormalize_sub for pretty `Sub` nodes.
+  - Overload: `optimize(const Expr& e, int max_passes=6)` uses `default_rules()`.
 - `simplify()` can delegate to `rewrite()` with a default rule set, after existing const folding.
 - CSE: run CSE either before runtime rebuild or on the ET rebuilt tree as today.
 
@@ -133,3 +137,7 @@ This document proposes a flexible, header‑only rewrite engine for algebraic re
 - Rule compilation to decision trees for faster matching on large rule sets.
 - Coefficient extraction and rational simplification; polynomial factorization; gcd of monomials.
 
+## Notes on Subtraction Normalization & Denormalization
+
+- During normalization, subtraction is converted to addition of a negated RHS to unify all sum-like structures into `Add` nodes. This improves AC matching and simplifies rules.
+- For human-readable output or downstream consumers that prefer `Sub`, a `denormalize_sub(RGraph)` pass reconstitutes `Sub(a,b)` when a sum has exactly two terms and one is a negation (or a negative constant). Multi-term sums remain as `Add`.

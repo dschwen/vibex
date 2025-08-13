@@ -119,7 +119,7 @@ struct HashCSEHelper {
   }
 
   template <class T, std::size_t I>
-  typename Backend::result_type compile_impl(const Var<T,I>& v) { return b.template emitVar<T,I>(v); }
+  typename Backend::result_type compile_impl(const Var<T,I>&) { return b.template emitVar<T>(I); }
   template <class T>
   typename Backend::result_type compile_impl(const Const<T>& c) { return b.template emitConst<T>(c); }
   template <class Op, class... Ch>

@@ -38,6 +38,10 @@ int main() {
   RGraph gr = pass;
   std::cout << "After:  " << r_to_string(gr) << "\n";
 
+  // Show a denormalized (pretty) form with Sub reconstructed where possible
+  RGraph pretty = denormalize_sub(gr);
+  std::cout << "Pretty: " << r_to_string(pretty) << "\n";
+
   std::vector<double> in = {0.7,0.9,-0.3,1.1,-0.4,0.2,0.5,0.8};
   double v0 = e(in[0],in[1],in[2],in[3],in[4],in[5],in[6],in[7]);
   double v1 = eval(gr, in);

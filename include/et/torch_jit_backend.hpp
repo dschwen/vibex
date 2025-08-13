@@ -19,8 +19,8 @@ struct TorchJITBackend {
       inputs.push_back(g.addInput());
   }
 
-  template <class T, std::size_t I>
-  result_type emitVar(Var<T,I>) { return inputs[I]; }
+  template <class T>
+  result_type emitVar(std::size_t idx) { return inputs[idx]; }
 
   template <class T>
   result_type emitConst(Const<T> c) {

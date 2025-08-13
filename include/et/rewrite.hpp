@@ -130,4 +130,14 @@ inline RGraph rewrite_expr(const Expr& e, const std::vector<Rule>& rules) {
   return normalize(g);
 }
 
+// Convenience: normalize -> rewrite to fixed-point -> normalize -> denormalize_sub for pretty Sub nodes
+template <class Expr>
+inline RGraph optimize(const Expr& e, const std::vector<Rule>& rules, int max_passes = 6) {
+  RGraph g = compile_to_runtime(e);
+  g = normalize(g);
+  g = rewrite_fixed_point(g, rules, max_passes);
+  g = normalize(g);
+  return denormalize_sub(g);
+}
+
 } // namespace et

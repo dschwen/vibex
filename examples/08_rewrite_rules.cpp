@@ -7,7 +7,7 @@
 #include "et/pattern.hpp"
 #include "et/match.hpp"
 #include "et/rewrite.hpp"
-#include "et/rules_default.hpp"
+#include "et/optimize.hpp"
 #include "et/compile_runtime.hpp"
 #include "et/tape_backend.hpp"
 #ifdef ET_WITH_TORCH
@@ -19,13 +19,8 @@ int main() {
   auto [x] = Vars<double,1>();
   auto e = sin(x)*sin(x) + cos(x)*cos(x) + (lit(2.0)*x + lit(3.0)*x);
 
-  // 1) Build runtime graph (keep pre-normalized shape to allow subpattern matches)
-  RGraph g = compile_to_runtime(e);
-
-  // 2) Apply algebraic rewrite rules
-  auto rules = default_rules();
-  RGraph gr = rewrite_fixed_point(g, rules, 6);
-  gr = normalize(gr);
+  // Optimize with default rules and denormalized pretty Sub where applicable
+  RGraph gr = optimize(e);
 
   // 3) Evaluate numerically via runtime eval
   double v_eval = eval(gr, std::vector<double>{1.23});

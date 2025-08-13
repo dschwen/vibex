@@ -11,8 +11,8 @@ struct CountingBackend {
   std::size_t nVar = 0, nConst = 0, nUnary = 0, nBinary = 0;
   int next = 0;
 
-  template <class T, std::size_t I>
-  result_type emitVar(Var<T,I>) { ++nVar; return next++; }
+  template <class T>
+  result_type emitVar(std::size_t) { ++nVar; return next++; }
   template <class T>
   result_type emitConst(Const<T>) { ++nConst; return next++; }
   template <class Op>
@@ -44,4 +44,3 @@ int main() {
   assert(b.nVar == 2);
   return 0;
 }
-
