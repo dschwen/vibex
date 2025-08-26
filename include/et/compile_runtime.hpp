@@ -33,6 +33,16 @@ inline auto compile_runtime(const RGraph& g, Backend& b) -> typename Backend::re
       case NodeKind::Log: { auto a = rec(n.ch[0]); return b.emitApply(LogOp{}, a); }
       case NodeKind::Sqrt:{ auto a = rec(n.ch[0]); return b.emitApply(SqrtOp{}, a); }
       case NodeKind::Tanh:{ auto a = rec(n.ch[0]); return b.emitApply(TanhOp{}, a); }
+#ifdef ET_ENABLE_CONTROL_FLOW
+      case NodeKind::If: {
+        auto c = rec(n.ch[0]); auto t = rec(n.ch[1]); auto e = rec(n.ch[2]);
+        return b.emitApply(IfOp{}, c, t, e);
+      }
+      case NodeKind::Select: {
+        auto m = rec(n.ch[0]); auto t = rec(n.ch[1]); auto e = rec(n.ch[2]);
+        return b.emitApply(SelectOp{}, m, t, e);
+      }
+#endif
       case NodeKind::Sub: {
         auto a = rec(n.ch[0]); auto c = rec(n.ch[1]);
         return b.emitApply(SubOp{}, a, c);

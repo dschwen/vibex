@@ -27,6 +27,16 @@ template <> inline const char* op_name<ExpOp>() { return "Exp"; }
 template <> inline const char* op_name<LogOp>() { return "Log"; }
 template <> inline const char* op_name<SqrtOp>() { return "Sqrt"; }
 template <> inline const char* op_name<TanhOp>() { return "Tanh"; }
+#ifdef ET_ENABLE_CONTROL_FLOW
+template <> inline const char* op_name<IfOp>() { return "If"; }
+template <> inline const char* op_name<SelectOp>() { return "Select"; }
+template <> inline const char* op_name<LtOp>() { return "Lt"; }
+template <> inline const char* op_name<LeOp>() { return "Le"; }
+template <> inline const char* op_name<GtOp>() { return "Gt"; }
+template <> inline const char* op_name<GeOp>() { return "Ge"; }
+template <> inline const char* op_name<EqOp>() { return "Eq"; }
+template <> inline const char* op_name<NotOp>() { return "Not"; }
+#endif
 
 template <class Op, class... Ch>
 inline void to_key_stream(std::ostream& os, const Apply<Op,Ch...>& a) {

@@ -79,6 +79,99 @@ using is_node_t = is_node<std::decay_t<T>>;
 //===========================
 // Ops (tags) and sugar
 //===========================
+// Optional control-flow and selection operators
+#ifdef ET_ENABLE_CONTROL_FLOW
+// --- Comparisons and logical not (bool-valued) ---
+struct LtOp {
+  static constexpr std::size_t arity = 2;
+  template <class A, class B> static constexpr bool eval(A&& a, B&& b) { return std::forward<A>(a) < std::forward<B>(b); }
+  template <std::size_t I, class ANode, class BNode>
+  static auto d(const ANode&, const BNode&) {
+    using T = value_type_of_t<ANode>;
+    return lit(static_cast<T>(0));
+  }
+};
+struct LeOp {
+  static constexpr std::size_t arity = 2;
+  template <class A, class B> static constexpr bool eval(A&& a, B&& b) { return std::forward<A>(a) <= std::forward<B>(b); }
+  template <std::size_t I, class ANode, class BNode>
+  static auto d(const ANode&, const BNode&) {
+    using T = value_type_of_t<ANode>;
+    return lit(static_cast<T>(0));
+  }
+};
+struct GtOp {
+  static constexpr std::size_t arity = 2;
+  template <class A, class B> static constexpr bool eval(A&& a, B&& b) { return std::forward<A>(a) > std::forward<B>(b); }
+  template <std::size_t I, class ANode, class BNode>
+  static auto d(const ANode&, const BNode&) {
+    using T = value_type_of_t<ANode>;
+    return lit(static_cast<T>(0));
+  }
+};
+struct GeOp {
+  static constexpr std::size_t arity = 2;
+  template <class A, class B> static constexpr bool eval(A&& a, B&& b) { return std::forward<A>(a) >= std::forward<B>(b); }
+  template <std::size_t I, class ANode, class BNode>
+  static auto d(const ANode&, const BNode&) {
+    using T = value_type_of_t<ANode>;
+    return lit(static_cast<T>(0));
+  }
+};
+struct EqOp {
+  static constexpr std::size_t arity = 2;
+  template <class A, class B> static constexpr bool eval(A&& a, B&& b) { return std::forward<A>(a) == std::forward<B>(b); }
+  template <std::size_t I, class ANode, class BNode>
+  static auto d(const ANode&, const BNode&) {
+    using T = value_type_of_t<ANode>;
+    return lit(static_cast<T>(0));
+  }
+};
+struct NotOp {
+  static constexpr std::size_t arity = 1;
+  template <class A> static constexpr bool eval(A&& a) { return !static_cast<bool>(std::forward<A>(a)); }
+  template <std::size_t I, class X>
+  static auto d(const X&) {
+    using T = value_type_of_t<X>;
+    return lit(static_cast<T>(0));
+  }
+};
+
+struct IfOp {
+  static constexpr std::size_t arity = 3;
+  template <class C, class A, class B>
+  static constexpr auto eval(C&& c, A&& a, B&& b)
+  -> decltype((c ? std::forward<A>(a) : std::forward<B>(b))) { return c ? std::forward<A>(a) : std::forward<B>(b); }
+  template <std::size_t I, class CNode, class TNode, class ENode>
+  static auto d(const CNode& c, const TNode& t, const ENode& e) {
+    // Treat condition as non-differentiable selector; mirror structure
+    return Apply<IfOp,
+                 CNode,
+                 decltype(diff(t, std::integral_constant<std::size_t,I>{})),
+                 decltype(diff(e, std::integral_constant<std::size_t,I>{}))>
+           ( c,
+             diff(t, std::integral_constant<std::size_t,I>{}),
+             diff(e, std::integral_constant<std::size_t,I>{}) );
+  }
+};
+struct SelectOp {
+  static constexpr std::size_t arity = 3;
+  template <class M, class A, class B>
+  static constexpr auto eval(M&& m, A&& a, B&& b)
+  -> decltype((m ? std::forward<A>(a) : std::forward<B>(b))) { return m ? std::forward<A>(a) : std::forward<B>(b); }
+  template <std::size_t I, class MNode, class TNode, class ENode>
+  static auto d(const MNode& m, const TNode& t, const ENode& e) {
+    // Mask is non-diff; elementwise select on derivatives
+    return Apply<SelectOp,
+                 MNode,
+                 decltype(diff(t, std::integral_constant<std::size_t,I>{})),
+                 decltype(diff(e, std::integral_constant<std::size_t,I>{}))>
+           ( m,
+             diff(t, std::integral_constant<std::size_t,I>{}),
+             diff(e, std::integral_constant<std::size_t,I>{}) );
+  }
+};
+#endif
 struct AddOp {
   static constexpr std::size_t arity = 2;
   template <class A, class B> static constexpr auto eval(A&& a, B&& b)
@@ -209,6 +302,33 @@ constexpr auto tanh(A a) { return Apply<TanhOp, std::decay_t<A>>(std::move(a)); 
 // Power wrapper (only when at least one side is an ET node)
 template <class L, class R, std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
 constexpr auto pow(L l, R r) { return Apply<PowOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
+
+#ifdef ET_ENABLE_CONTROL_FLOW
+// Comparison operators (when at least one side is a node)
+template <class L, class R, std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
+constexpr auto operator<(L l, R r) { return Apply<LtOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
+template <class L, class R, std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
+constexpr auto operator<=(L l, R r) { return Apply<LeOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
+template <class L, class R, std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
+constexpr auto operator>(L l, R r) { return Apply<GtOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
+template <class L, class R, std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
+constexpr auto operator>=(L l, R r) { return Apply<GeOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
+template <class L, class R, std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
+constexpr auto operator==(L l, R r) { return Apply<EqOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
+
+// Logical not for node
+template <class A, std::enable_if_t<is_node_t<A>::value, int> = 0>
+constexpr auto operator!(A a) { return Apply<NotOp, std::decay_t<A>>(std::move(a)); }
+
+// If/Select wrappers (only when at least one side is a node)
+template <class C, class T, class E,
+          std::enable_if_t<is_node_t<C>::value || is_node_t<T>::value || is_node_t<E>::value, int> = 0>
+constexpr auto If(C c, T t, E e) { return Apply<IfOp, std::decay_t<C>, std::decay_t<T>, std::decay_t<E>>(std::move(c), std::move(t), std::move(e)); }
+
+template <class M, class T, class E,
+          std::enable_if_t<is_node_t<M>::value || is_node_t<T>::value || is_node_t<E>::value, int> = 0>
+constexpr auto Select(M m, T t, E e) { return Apply<SelectOp, std::decay_t<M>, std::decay_t<T>, std::decay_t<E>>(std::move(m), std::move(t), std::move(e)); }
+#endif
 
 //===========================
 // Automatic differentiation

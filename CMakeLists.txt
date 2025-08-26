@@ -19,6 +19,8 @@ endif()
 option(ET_WITH_TORCH "Enable TorchScript integrations" OFF)
 option(ET_BUILD_TORCH_EXAMPLES "Build Torch-based example binaries" OFF)
 option(ET_BUILD_TORCH_TESTS "Build Torch-based tests" OFF)
+option(ET_BUILD_CONTROL_FLOW_EXAMPLE "Build control-flow example" OFF)
+option(ET_BUILD_CONTROL_FLOW_TESTS "Build control-flow tests" OFF)
 
 # Increase maximum template instantiation depth
 add_compile_options(-ftemplate-depth=12000)
@@ -49,6 +51,12 @@ target_link_libraries(08_rewrite_rules PRIVATE et)
 
 add_executable(09_rewrite_nested examples/09_rewrite_nested.cpp)
 target_link_libraries(09_rewrite_nested PRIVATE et)
+
+if(ET_BUILD_CONTROL_FLOW_EXAMPLE)
+  add_executable(10_control_flow examples/10_control_flow.cpp)
+  target_link_libraries(10_control_flow PRIVATE et)
+  target_compile_definitions(10_control_flow PRIVATE ET_ENABLE_CONTROL_FLOW)
+endif()
 
 if(ET_WITH_TORCH AND ET_BUILD_TORCH_EXAMPLES)
   find_package(Torch REQUIRED)
@@ -147,6 +155,13 @@ if(BUILD_TESTING)
   add_executable(et_tests_denormalize_multi_sub tests/test_denormalize_multi_sub.cpp)
   target_link_libraries(et_tests_denormalize_multi_sub PRIVATE et)
   add_test(NAME et_denormalize_multi_sub COMMAND et_tests_denormalize_multi_sub)
+
+  if(ET_BUILD_CONTROL_FLOW_TESTS)
+    add_executable(et_tests_control_flow tests/test_control_flow.cpp)
+    target_link_libraries(et_tests_control_flow PRIVATE et)
+    target_compile_definitions(et_tests_control_flow PRIVATE ET_ENABLE_CONTROL_FLOW)
+    add_test(NAME et_control_flow COMMAND et_tests_control_flow)
+  endif()
 
   if(ET_WITH_TORCH AND ET_BUILD_TORCH_TESTS)
     find_package(Torch REQUIRED)

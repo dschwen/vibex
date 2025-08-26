@@ -20,6 +20,9 @@ enum class NodeKind : uint8_t {
   Var, Const,
   Add, Sub, Mul, Div, Pow,
   Neg, Sin, Cos, Exp, Log, Sqrt, Tanh
+#ifdef ET_ENABLE_CONTROL_FLOW
+  , If, Select, Lt, Le, Gt, Ge, Eq, Not
+#endif
 };
 
 struct RNode {
@@ -53,6 +56,16 @@ template <> struct nodekind_of<ExpOp>  { static constexpr NodeKind value = NodeK
 template <> struct nodekind_of<LogOp>  { static constexpr NodeKind value = NodeKind::Log; };
 template <> struct nodekind_of<SqrtOp> { static constexpr NodeKind value = NodeKind::Sqrt; };
 template <> struct nodekind_of<TanhOp> { static constexpr NodeKind value = NodeKind::Tanh; };
+#ifdef ET_ENABLE_CONTROL_FLOW
+template <> struct nodekind_of<IfOp>    { static constexpr NodeKind value = NodeKind::If; };
+template <> struct nodekind_of<SelectOp>{ static constexpr NodeKind value = NodeKind::Select; };
+template <> struct nodekind_of<LtOp>    { static constexpr NodeKind value = NodeKind::Lt; };
+template <> struct nodekind_of<LeOp>    { static constexpr NodeKind value = NodeKind::Le; };
+template <> struct nodekind_of<GtOp>    { static constexpr NodeKind value = NodeKind::Gt; };
+template <> struct nodekind_of<GeOp>    { static constexpr NodeKind value = NodeKind::Ge; };
+template <> struct nodekind_of<EqOp>    { static constexpr NodeKind value = NodeKind::Eq; };
+template <> struct nodekind_of<NotOp>   { static constexpr NodeKind value = NodeKind::Not; };
+#endif
 
 // Compile ET expression to runtime graph (returns node id)
 template <class T, std::size_t I>
@@ -109,6 +122,16 @@ inline double eval(const RGraph& g, const std::vector<double>& inputs) {
       case NodeKind::Log:   slot = std::log(rec(n.ch[0])); break;
       case NodeKind::Sqrt:  slot = std::sqrt(rec(n.ch[0])); break;
       case NodeKind::Tanh:  slot = std::tanh(rec(n.ch[0])); break;
+#ifdef ET_ENABLE_CONTROL_FLOW
+      case NodeKind::If:    slot = (rec(n.ch[0]) != 0.0) ? rec(n.ch[1]) : rec(n.ch[2]); break;
+      case NodeKind::Select:slot = (rec(n.ch[0]) != 0.0) ? rec(n.ch[1]) : rec(n.ch[2]); break;
+      case NodeKind::Lt:    slot = rec(n.ch[0]) <  rec(n.ch[1]) ? 1.0 : 0.0; break;
+      case NodeKind::Le:    slot = rec(n.ch[0]) <= rec(n.ch[1]) ? 1.0 : 0.0; break;
+      case NodeKind::Gt:    slot = rec(n.ch[0]) >  rec(n.ch[1]) ? 1.0 : 0.0; break;
+      case NodeKind::Ge:    slot = rec(n.ch[0]) >= rec(n.ch[1]) ? 1.0 : 0.0; break;
+      case NodeKind::Eq:    slot = rec(n.ch[0]) == rec(n.ch[1]) ? 1.0 : 0.0; break;
+      case NodeKind::Not:   slot = (rec(n.ch[0]) == 0.0) ? 1.0 : 0.0; break;
+#endif
     }
     return slot;
   };
@@ -149,6 +172,16 @@ inline std::string r_to_string(const RGraph& g) {
       case NodeKind::Log:   return std::string("Log(") + rec(n.ch[0]) + ")";
       case NodeKind::Sqrt:  return std::string("Sqrt(") + rec(n.ch[0]) + ")";
       case NodeKind::Tanh:  return std::string("Tanh(") + rec(n.ch[0]) + ")";
+#ifdef ET_ENABLE_CONTROL_FLOW
+      case NodeKind::If:    return std::string("If(") + rec(n.ch[0]) + "," + rec(n.ch[1]) + "," + rec(n.ch[2]) + ")";
+      case NodeKind::Select:return std::string("Select(") + rec(n.ch[0]) + "," + rec(n.ch[1]) + "," + rec(n.ch[2]) + ")";
+      case NodeKind::Lt:    return std::string("Lt(") + rec(n.ch[0]) + "," + rec(n.ch[1]) + ")";
+      case NodeKind::Le:    return std::string("Le(") + rec(n.ch[0]) + "," + rec(n.ch[1]) + ")";
+      case NodeKind::Gt:    return std::string("Gt(") + rec(n.ch[0]) + "," + rec(n.ch[1]) + ")";
+      case NodeKind::Ge:    return std::string("Ge(") + rec(n.ch[0]) + "," + rec(n.ch[1]) + ")";
+      case NodeKind::Eq:    return std::string("Eq(") + rec(n.ch[0]) + "," + rec(n.ch[1]) + ")";
+      case NodeKind::Not:   return std::string("Not(") + rec(n.ch[0]) + ")";
+#endif
     }
     return "";
   };
@@ -212,6 +245,26 @@ inline auto build_et(const RGraph& g, int id) {
     case NodeKind::Mul:  return fold_nary_build<T,MulOp>(g, n);
     case NodeKind::Div:  return make_bin_build<T,DivOp>(g, n);
     case NodeKind::Pow:  return make_bin_build<T,PowOp>(g, n);
+#ifdef ET_ENABLE_CONTROL_FLOW
+    case NodeKind::If: {
+      auto c = build_et<T>(g, n.ch[0]);
+      auto a = build_et<T>(g, n.ch[1]);
+      auto b = build_et<T>(g, n.ch[2]);
+      return Apply<IfOp, decltype(c), decltype(a), decltype(b)>(std::move(c), std::move(a), std::move(b));
+    }
+    case NodeKind::Select: {
+      auto m = build_et<T>(g, n.ch[0]);
+      auto a = build_et<T>(g, n.ch[1]);
+      auto b = build_et<T>(g, n.ch[2]);
+      return Apply<SelectOp, decltype(m), decltype(a), decltype(b)>(std::move(m), std::move(a), std::move(b));
+    }
+    case NodeKind::Lt:  return make_bin_build<T,LtOp>(g, n);
+    case NodeKind::Le:  return make_bin_build<T,LeOp>(g, n);
+    case NodeKind::Gt:  return make_bin_build<T,GtOp>(g, n);
+    case NodeKind::Ge:  return make_bin_build<T,GeOp>(g, n);
+    case NodeKind::Eq:  return make_bin_build<T,EqOp>(g, n);
+    case NodeKind::Not: { auto a = build_et<T>(g, n.ch[0]); return Apply<NotOp, decltype(a)>(std::move(a)); }
+#endif
   }
   return lit(static_cast<T>(0));
 }

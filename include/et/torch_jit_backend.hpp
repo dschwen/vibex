@@ -61,6 +61,37 @@ struct TorchJITBackend {
     else if constexpr (std::is_same<Op, PowOp>::value) return mk("aten::pow", a, b);
     else static_assert(!std::is_same<Op,Op>::value, "Binary op not mapped to Torch JIT");
   }
+
+#ifdef ET_ENABLE_CONTROL_FLOW
+  template <class Op>
+  result_type emitApply(Op, result_type a, result_type b, result_type c) {
+    if constexpr (std::is_same<Op, IfOp>::value) {
+      // Lower to prim::If with single value output
+      auto* cond = a;
+      auto* if_node = g.create(torch::jit::prim::If, 1);
+      if_node->addInput(cond);
+      auto* then_block = if_node->addBlock();
+      auto* else_block = if_node->addBlock();
+      {
+        torch::jit::WithInsertPoint guard(then_block);
+        then_block->registerOutput(b);
+      }
+      {
+        torch::jit::WithInsertPoint guard(else_block);
+        else_block->registerOutput(c);
+      }
+      g.insertNode(if_node);
+      return if_node->output();
+    } else if constexpr (std::is_same<Op, SelectOp>::value) {
+      // Prefer aten::where(mask, a, b)
+      auto n = g.create(c10::Symbol::fromQualString("aten::where"), {a, b, c});
+      g.insertNode(n);
+      return n->output();
+    } else {
+      static_assert(!std::is_same<Op,Op>::value, "Ternary op not mapped to Torch JIT");
+    }
+  }
+#endif
 };
 #else
 struct TorchJITBackend; // stub

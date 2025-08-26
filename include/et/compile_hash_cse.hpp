@@ -29,6 +29,16 @@ template<> struct op_id<ExpOp>  { static constexpr std::uint64_t value = 0x32; }
 template<> struct op_id<LogOp>  { static constexpr std::uint64_t value = 0x33; };
 template<> struct op_id<SqrtOp> { static constexpr std::uint64_t value = 0x34; };
 template<> struct op_id<TanhOp> { static constexpr std::uint64_t value = 0x35; };
+#ifdef ET_ENABLE_CONTROL_FLOW
+template<> struct op_id<IfOp>     { static constexpr std::uint64_t value = 0x41; };
+template<> struct op_id<SelectOp> { static constexpr std::uint64_t value = 0x42; };
+template<> struct op_id<LtOp>     { static constexpr std::uint64_t value = 0x43; };
+template<> struct op_id<LeOp>     { static constexpr std::uint64_t value = 0x44; };
+template<> struct op_id<GtOp>     { static constexpr std::uint64_t value = 0x45; };
+template<> struct op_id<GeOp>     { static constexpr std::uint64_t value = 0x46; };
+template<> struct op_id<EqOp>     { static constexpr std::uint64_t value = 0x47; };
+template<> struct op_id<NotOp>    { static constexpr std::uint64_t value = 0x48; };
+#endif
 
 // --- structural key for collision checks --------------------------------
 template <class Expr> inline void to_key_stream(std::ostream& os, const Expr&);
