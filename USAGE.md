@@ -282,6 +282,10 @@ To hide boilerplate when exporting a single-graph function, use the thin wrapper
   auto runner = make_torch_method_runner(expr, /*arity=*/1);
   auto out2 = runner({torch::tensor(1.0)});
   std::cout << out2.toTensor() << "\n";
+#  elif defined(ET_TORCH_HAS_GRAPH_EXECUTOR)
+  // Fallback: run via GraphExecutor (no Module)
+  auto ge_runner = make_torch_graph_runner(expr, /*arity=*/1);
+  std::cout << ge_runner({torch::tensor(1.0)}).toTensor() << "\n";
 #  endif
 #endif
 ```

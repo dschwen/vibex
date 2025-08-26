@@ -28,6 +28,16 @@ int main() {
   auto runner = make_torch_method_runner(expr, /*arity=*/1);
   auto out_iv = runner({x_t});
   std::cout << "TorchScript forward result: " << out_iv.toTensor() << "\n";
+#elif defined(ET_TORCH_ENABLE_DEFINE_WRAPPER)
+  // Define()-based Module wrapper (portable TorchScript path)
+  auto mod = make_script_module_define(expr, /*arity=*/1);
+  auto out_iv = mod.get_method("forward")({x_t});
+  std::cout << "TorchScript (define) result: " << out_iv.toTensor() << "\n";
+#elif defined(ET_TORCH_HAS_GRAPH_EXECUTOR) && defined(ET_TORCH_USE_GRAPH_EXECUTOR)
+  // Fallback: run the compiled Graph via GraphExecutor (no Module)
+  auto ge_runner = make_torch_graph_runner(expr, /*arity=*/1);
+  auto out_iv2 = ge_runner({x_t});
+  std::cout << "Torch GraphExecutor result: " << out_iv2.toTensor() << "\n";
 #endif
 #else
   std::cout << "Built without Torch.\n";
