@@ -42,6 +42,13 @@ inline auto compile_runtime(const RGraph& g, Backend& b) -> typename Backend::re
         auto m = rec(n.ch[0]); auto t = rec(n.ch[1]); auto e = rec(n.ch[2]);
         return b.emitApply(SelectOp{}, m, t, e);
       }
+      case NodeKind::Lt: { auto a = rec(n.ch[0]); auto c = rec(n.ch[1]); return b.emitApply(LtOp{}, a, c); }
+      case NodeKind::Le: { auto a = rec(n.ch[0]); auto c = rec(n.ch[1]); return b.emitApply(LeOp{}, a, c); }
+      case NodeKind::Gt: { auto a = rec(n.ch[0]); auto c = rec(n.ch[1]); return b.emitApply(GtOp{}, a, c); }
+      case NodeKind::Ge: { auto a = rec(n.ch[0]); auto c = rec(n.ch[1]); return b.emitApply(GeOp{}, a, c); }
+      case NodeKind::Eq: { auto a = rec(n.ch[0]); auto c = rec(n.ch[1]); return b.emitApply(EqOp{}, a, c); }
+      case NodeKind::Ne: { auto a = rec(n.ch[0]); auto c = rec(n.ch[1]); return b.emitApply(NeOp{}, a, c); }
+      case NodeKind::Not: { auto a = rec(n.ch[0]); return b.emitApply(NotOp{}, a); }
 #endif
       case NodeKind::Sub: {
         auto a = rec(n.ch[0]); auto c = rec(n.ch[1]);
