@@ -38,6 +38,7 @@ template<> struct op_id<GtOp>     { static constexpr std::uint64_t value = 0x45;
 template<> struct op_id<GeOp>     { static constexpr std::uint64_t value = 0x46; };
 template<> struct op_id<EqOp>     { static constexpr std::uint64_t value = 0x47; };
 template<> struct op_id<NotOp>    { static constexpr std::uint64_t value = 0x48; };
+template<> struct op_id<NeOp>     { static constexpr std::uint64_t value = 0x49; };
 #endif
 
 // --- structural key for collision checks --------------------------------

@@ -25,15 +25,19 @@ int main() {
   // Basic comparisons
   auto c_lt = x < lit(2.0);
   auto c_ge = x >= lit(2.0);
-  auto c_eq = x == lit(2.0);
+  auto c_eq = (x == lit(2.0));
+  auto c_ne = (x != lit(2.0));
   auto c_not = !c_eq;
   auto glt = compile_to_runtime(c_lt);
   auto gge = compile_to_runtime(c_ge);
   auto geq = compile_to_runtime(c_eq);
+  auto gne = compile_to_runtime(c_ne);
   auto gnot = compile_to_runtime(c_not);
   assert(eval(glt, {1.0}) == 1.0);
   assert(eval(gge, {1.0}) == 0.0);
   assert(eval(geq, {2.0}) == 1.0);
+  assert(eval(gne, {2.0}) == 0.0);
+  assert(eval(gne, {3.0}) == 1.0);
   assert(eval(gnot, {2.0}) == 0.0);
 
   // Select(mask, a, b)

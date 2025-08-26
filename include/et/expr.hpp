@@ -127,6 +127,15 @@ struct EqOp {
     return lit(static_cast<T>(0));
   }
 };
+struct NeOp {
+  static constexpr std::size_t arity = 2;
+  template <class A, class B> static constexpr bool eval(A&& a, B&& b) { return std::forward<A>(a) != std::forward<B>(b); }
+  template <std::size_t I, class ANode, class BNode>
+  static auto d(const ANode&, const BNode&) {
+    using T = value_type_of_t<ANode>;
+    return lit(static_cast<T>(0));
+  }
+};
 struct NotOp {
   static constexpr std::size_t arity = 1;
   template <class A> static constexpr bool eval(A&& a) { return !static_cast<bool>(std::forward<A>(a)); }
@@ -315,6 +324,8 @@ template <class L, class R, std::enable_if_t<is_node_t<L>::value || is_node_t<R>
 constexpr auto operator>=(L l, R r) { return Apply<GeOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
 template <class L, class R, std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
 constexpr auto operator==(L l, R r) { return Apply<EqOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
+template <class L, class R, std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
+constexpr auto operator!=(L l, R r) { return Apply<NeOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
 
 // Logical not for node
 template <class A, std::enable_if_t<is_node_t<A>::value, int> = 0>

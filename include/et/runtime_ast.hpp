@@ -21,7 +21,7 @@ enum class NodeKind : uint8_t {
   Add, Sub, Mul, Div, Pow,
   Neg, Sin, Cos, Exp, Log, Sqrt, Tanh
 #ifdef ET_ENABLE_CONTROL_FLOW
-  , If, Select, Lt, Le, Gt, Ge, Eq, Not
+  , If, Select, Lt, Le, Gt, Ge, Eq, Ne, Not
 #endif
 };
 
@@ -64,6 +64,7 @@ template <> struct nodekind_of<LeOp>    { static constexpr NodeKind value = Node
 template <> struct nodekind_of<GtOp>    { static constexpr NodeKind value = NodeKind::Gt; };
 template <> struct nodekind_of<GeOp>    { static constexpr NodeKind value = NodeKind::Ge; };
 template <> struct nodekind_of<EqOp>    { static constexpr NodeKind value = NodeKind::Eq; };
+template <> struct nodekind_of<NeOp>    { static constexpr NodeKind value = NodeKind::Ne; };
 template <> struct nodekind_of<NotOp>   { static constexpr NodeKind value = NodeKind::Not; };
 #endif
 
@@ -130,6 +131,7 @@ inline double eval(const RGraph& g, const std::vector<double>& inputs) {
       case NodeKind::Gt:    slot = rec(n.ch[0]) >  rec(n.ch[1]) ? 1.0 : 0.0; break;
       case NodeKind::Ge:    slot = rec(n.ch[0]) >= rec(n.ch[1]) ? 1.0 : 0.0; break;
       case NodeKind::Eq:    slot = rec(n.ch[0]) == rec(n.ch[1]) ? 1.0 : 0.0; break;
+      case NodeKind::Ne:    slot = rec(n.ch[0]) != rec(n.ch[1]) ? 1.0 : 0.0; break;
       case NodeKind::Not:   slot = (rec(n.ch[0]) == 0.0) ? 1.0 : 0.0; break;
 #endif
     }
@@ -180,6 +182,7 @@ inline std::string r_to_string(const RGraph& g) {
       case NodeKind::Gt:    return std::string("Gt(") + rec(n.ch[0]) + "," + rec(n.ch[1]) + ")";
       case NodeKind::Ge:    return std::string("Ge(") + rec(n.ch[0]) + "," + rec(n.ch[1]) + ")";
       case NodeKind::Eq:    return std::string("Eq(") + rec(n.ch[0]) + "," + rec(n.ch[1]) + ")";
+      case NodeKind::Ne:    return std::string("Ne(") + rec(n.ch[0]) + "," + rec(n.ch[1]) + ")";
       case NodeKind::Not:   return std::string("Not(") + rec(n.ch[0]) + ")";
 #endif
     }
@@ -263,6 +266,7 @@ inline auto build_et(const RGraph& g, int id) {
     case NodeKind::Gt:  return make_bin_build<T,GtOp>(g, n);
     case NodeKind::Ge:  return make_bin_build<T,GeOp>(g, n);
     case NodeKind::Eq:  return make_bin_build<T,EqOp>(g, n);
+    case NodeKind::Ne:  return make_bin_build<T,NeOp>(g, n);
     case NodeKind::Not: { auto a = build_et<T>(g, n.ch[0]); return Apply<NotOp, decltype(a)>(std::move(a)); }
 #endif
   }
