@@ -142,102 +142,7 @@ struct TorchGraphRunner {
       torch::jit::EliminateDeadCode(graph);
 #endif
 
-// ---------------------------
-// TorchScript define() wrapper
-// ---------------------------
-#ifdef ET_WITH_TORCH
-#ifdef ET_TORCH_ENABLE_DEFINE_WRAPPER
-
-// Minimal TS codegen for a subset: arithmetic, unary, comparisons, Select/If -> torch.where
-namespace detail_ts {
-  inline std::string num_literal(double v) {
-    std::ostringstream os;
-    os.setf(std::ios::fixed); os.precision(6);
-    os << v;
-    if (os.str().find('.') == std::string::npos) os << ".0";
-    return os.str();
-  }
-
-  template <class T, std::size_t I>
-  std::string emit(const Var<T,I>&) { return std::string("x") + std::to_string(I); }
-
-  template <class T>
-  std::string emit(const Const<T>& c) { return num_literal(static_cast<double>(c.value)); }
-
-  template <class Op, class A>
-  std::string emit(const Apply<Op,A>& a);
-  template <class Op, class A, class B>
-  std::string emit(const Apply<Op,A,B>& a);
-  template <class Op, class A, class B, class C>
-  std::string emit(const Apply<Op,A,B,C>& a);
-
-  template <class A>
-  std::string emit(const Apply<NegOp,A>& a) { return std::string("(-") + emit(a.template child<0>()) + ")"; }
-  template <class A> std::string emit(const Apply<SinOp,A>& a){ return "torch.sin(" + emit(a.template child<0>()) + ")"; }
-  template <class A> std::string emit(const Apply<CosOp,A>& a){ return "torch.cos(" + emit(a.template child<0>()) + ")"; }
-  template <class A> std::string emit(const Apply<ExpOp,A>& a){ return "torch.exp(" + emit(a.template child<0>()) + ")"; }
-  template <class A> std::string emit(const Apply<LogOp,A>& a){ return "torch.log(" + emit(a.template child<0>()) + ")"; }
-  template <class A> std::string emit(const Apply<SqrtOp,A>& a){ return "torch.sqrt(" + emit(a.template child<0>()) + ")"; }
-  template <class A> std::string emit(const Apply<TanhOp,A>& a){ return "torch.tanh(" + emit(a.template child<0>()) + ")"; }
-  template <class A> std::string emit(const Apply<NotOp,A>& a){ return "torch.logical_not(" + emit(a.template child<0>()) + ")"; }
-
-  template <class A, class B>
-  std::string emit(const Apply<AddOp,A,B>& a){ return "(" + emit(a.template child<0>()) + " + " + emit(a.template child<1>()) + ")"; }
-  template <class A, class B>
-  std::string emit(const Apply<SubOp,A,B>& a){ return "(" + emit(a.template child<0>()) + " - " + emit(a.template child<1>()) + ")"; }
-  template <class A, class B>
-  std::string emit(const Apply<MulOp,A,B>& a){ return "(" + emit(a.template child<0>()) + " * " + emit(a.template child<1>()) + ")"; }
-  template <class A, class B>
-  std::string emit(const Apply<DivOp,A,B>& a){ return "(" + emit(a.template child<0>()) + " / " + emit(a.template child<1>()) + ")"; }
-  template <class A, class B>
-  std::string emit(const Apply<PowOp,A,B>& a){ return "(" + emit(a.template child<0>()) + " ** " + emit(a.template child<1>()) + ")"; }
-
-  template <class A, class B>
-  std::string emit(const Apply<LtOp,A,B>& a){ return "(" + emit(a.template child<0>()) + " < " + emit(a.template child<1>()) + ")"; }
-  template <class A, class B>
-  std::string emit(const Apply<LeOp,A,B>& a){ return "(" + emit(a.template child<0>()) + " <= " + emit(a.template child<1>()) + ")"; }
-  template <class A, class B>
-  std::string emit(const Apply<GtOp,A,B>& a){ return "(" + emit(a.template child<0>()) + " > " + emit(a.template child<1>()) + ")"; }
-  template <class A, class B>
-  std::string emit(const Apply<GeOp,A,B>& a){ return "(" + emit(a.template child<0>()) + " >= " + emit(a.template child<1>()) + ")"; }
-  template <class A, class B>
-  std::string emit(const Apply<EqOp,A,B>& a){ return "(" + emit(a.template child<0>()) + " == " + emit(a.template child<1>()) + ")"; }
-  template <class A, class B>
-  std::string emit(const Apply<NeOp,A,B>& a){ return "(" + emit(a.template child<0>()) + " != " + emit(a.template child<1>()) + ")"; }
-
-  template <class A, class B, class C>
-  std::string emit(const Apply<IfOp,A,B,C>& a){
-    // Lower to elementwise where
-    return "torch.where(" + emit(a.template child<0>()) + ", " + emit(a.template child<1>()) + ", " + emit(a.template child<2>()) + ")";
-  }
-  template <class A, class B, class C>
-  std::string emit(const Apply<SelectOp,A,B,C>& a){
-    return "torch.where(" + emit(a.template child<0>()) + ", " + emit(a.template child<1>()) + ", " + emit(a.template child<2>()) + ")";
-  }
-
-  template <class Expr>
-  std::string emit_any(const Expr& e) { return emit(e); }
-
-  template <class Expr>
-  std::string gen_source(const Expr& e, std::size_t arity) {
-    std::ostringstream os;
-    os << "def forward(self";
-    for (std::size_t i=0;i<arity;++i) os << ", x" << i << ": Tensor";
-    os << ") -> Tensor:\n    return " << emit_any(e) << "\n";
-    return os.str();
-  }
-} // namespace detail_ts
-
-template <class Expr>
-inline torch::jit::Module make_script_module_define(const Expr& e, std::size_t arity) {
-  torch::jit::Module m("ETModule");
-  auto src = detail_ts::gen_source(e, arity);
-  m.define(src);
-  return m;
-}
-
-#endif // ET_TORCH_ENABLE_DEFINE_WRAPPER
-#endif // ET_WITH_TORCH
+// (define wrapper moved below, outside this block)
 #if defined(ET_TORCH_HAS_PASS_CONST)
       torch::jit::ConstantPropagation(graph);
 #endif
@@ -280,6 +185,44 @@ inline TorchGraphRunner make_torch_graph_runner(const Expr& e, std::size_t arity
   return TorchGraphRunner(std::move(gcopy));
 }
 #endif
+
+// TorchScript define() wrapper placed outside GraphExecutor block
+#ifdef ET_TORCH_ENABLE_DEFINE_WRAPPER
+namespace detail_ts {
+  inline std::string num(double v){ std::ostringstream os; os.setf(std::ios::fixed); os.precision(6); os<<v; return os.str(); }
+  template <class T, std::size_t I> std::string emit(const Var<T,I>&){ return std::string("x")+std::to_string(I); }
+  template <class T> std::string emit(const Const<T>& c){ return num(static_cast<double>(c.value)); }
+  template <class Op, class A> std::string emit(const Apply<Op,A>&);
+  template <class Op, class A, class B> std::string emit(const Apply<Op,A,B>&);
+  template <class Op, class A, class B, class C> std::string emit(const Apply<Op,A,B,C>&);
+  template <class A> std::string emit(const Apply<NegOp,A>& a){ return "(-"+emit(a.template child<0>())+")"; }
+  template <class A> std::string emit(const Apply<SinOp,A>& a){ return "torch.sin("+emit(a.template child<0>())+")"; }
+  template <class A> std::string emit(const Apply<CosOp,A>& a){ return "torch.cos("+emit(a.template child<0>())+")"; }
+  template <class A> std::string emit(const Apply<ExpOp,A>& a){ return "torch.exp("+emit(a.template child<0>())+")"; }
+  template <class A> std::string emit(const Apply<LogOp,A>& a){ return "torch.log("+emit(a.template child<0>())+")"; }
+  template <class A> std::string emit(const Apply<SqrtOp,A>& a){ return "torch.sqrt("+emit(a.template child<0>())+")"; }
+  template <class A> std::string emit(const Apply<TanhOp,A>& a){ return "torch.tanh("+emit(a.template child<0>())+")"; }
+  template <class A> std::string emit(const Apply<NotOp,A>& a){ return "torch.logical_not("+emit(a.template child<0>())+")"; }
+  template <class A, class B> std::string emit(const Apply<AddOp,A,B>& a){ return "("+emit(a.template child<0>())+"+"+emit(a.template child<1>())+")"; }
+  template <class A, class B> std::string emit(const Apply<SubOp,A,B>& a){ return "("+emit(a.template child<0>())+"-"+emit(a.template child<1>())+")"; }
+  template <class A, class B> std::string emit(const Apply<MulOp,A,B>& a){ return "("+emit(a.template child<0>())+"*"+emit(a.template child<1>())+")"; }
+  template <class A, class B> std::string emit(const Apply<DivOp,A,B>& a){ return "("+emit(a.template child<0>())+"/"+emit(a.template child<1>())+")"; }
+  template <class A, class B> std::string emit(const Apply<PowOp,A,B>& a){ return "("+emit(a.template child<0>())+"**"+emit(a.template child<1>())+")"; }
+  template <class A, class B> std::string emit(const Apply<LtOp,A,B>& a){ return "("+emit(a.template child<0>())+"<"+emit(a.template child<1>())+")"; }
+  template <class A, class B> std::string emit(const Apply<LeOp,A,B>& a){ return "("+emit(a.template child<0>())+"<="+emit(a.template child<1>())+")"; }
+  template <class A, class B> std::string emit(const Apply<GtOp,A,B>& a){ return "("+emit(a.template child<0>())+">"+emit(a.template child<1>())+")"; }
+  template <class A, class B> std::string emit(const Apply<GeOp,A,B>& a){ return "("+emit(a.template child<0>())+">="+emit(a.template child<1>())+")"; }
+  template <class A, class B> std::string emit(const Apply<EqOp,A,B>& a){ return "("+emit(a.template child<0>())+"=="+emit(a.template child<1>())+")"; }
+  template <class A, class B> std::string emit(const Apply<NeOp,A,B>& a){ return "("+emit(a.template child<0>())+"!="+emit(a.template child<1>())+")"; }
+  template <class A, class B, class C> std::string emit(const Apply<IfOp,A,B,C>& a){ return "torch.where("+emit(a.template child<0>())+","+emit(a.template child<1>())+","+emit(a.template child<2>())+")"; }
+  template <class A, class B, class C> std::string emit(const Apply<SelectOp,A,B,C>& a){ return "torch.where("+emit(a.template child<0>())+","+emit(a.template child<1>())+","+emit(a.template child<2>())+")"; }
+  template <class Expr> std::string emit_any(const Expr& e){ return emit(e); }
+  template <class Expr> std::string gen_source(const Expr& e, std::size_t arity){ std::ostringstream os; os<<"def forward(self"; for(std::size_t i=0;i<arity;++i) os<<", x"<<i; os<<"):\n    return "<<emit_any(e)<<"\n"; return os.str(); }
+}
+
+template <class Expr>
+inline torch::jit::Module make_script_module_define(const Expr& e, std::size_t arity){ torch::jit::Module m("ETModule"); auto src = detail_ts::gen_source(e, arity); m.define(src); return m; }
+#endif // ET_TORCH_ENABLE_DEFINE_WRAPPER
 
 } // namespace et
 
