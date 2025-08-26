@@ -11,7 +11,7 @@ namespace et {
 struct Tape {
   enum Kind : uint8_t { KVar, KConst, KAdd, KSub, KMul, KDiv, KPow, KNeg, KSin, KExp, KLog, KSqrt, KTanh, KCos,
 #ifdef ET_ENABLE_CONTROL_FLOW
-                        KLt, KLe, KGt, KGe, KEq, KNe, KNot,
+                        KLt, KLe, KGt, KGe, KEq, KNe, KNot, KIf, KSelect,
 #endif
   };
 
@@ -46,13 +46,15 @@ struct Tape {
         case KTanh: val[i] = std::tanh(val[n.a]); break;
         case KCos:  val[i] = std::cos(val[n.a]); break;
 #ifdef ET_ENABLE_CONTROL_FLOW
-        case KLt:   val[i] = val[n.a] <  val[n.b] ? 1.0 : 0.0; break;
-        case KLe:   val[i] = val[n.a] <= val[n.b] ? 1.0 : 0.0; break;
-        case KGt:   val[i] = val[n.a] >  val[n.b] ? 1.0 : 0.0; break;
-        case KGe:   val[i] = val[n.a] >= val[n.b] ? 1.0 : 0.0; break;
-        case KEq:   val[i] = val[n.a] == val[n.b] ? 1.0 : 0.0; break;
-        case KNe:   val[i] = val[n.a] != val[n.b] ? 1.0 : 0.0; break;
-        case KNot:  val[i] = (val[n.a] == 0.0) ? 1.0 : 0.0; break;
+        case KLt:     val[i] = val[n.a] <  val[n.b] ? 1.0 : 0.0; break;
+        case KLe:     val[i] = val[n.a] <= val[n.b] ? 1.0 : 0.0; break;
+        case KGt:     val[i] = val[n.a] >  val[n.b] ? 1.0 : 0.0; break;
+        case KGe:     val[i] = val[n.a] >= val[n.b] ? 1.0 : 0.0; break;
+        case KEq:     val[i] = val[n.a] == val[n.b] ? 1.0 : 0.0; break;
+        case KNe:     val[i] = val[n.a] != val[n.b] ? 1.0 : 0.0; break;
+        case KNot:    val[i] = (val[n.a] == 0.0) ? 1.0 : 0.0; break;
+        case KIf:     val[i] = (val[n.a] != 0.0) ? val[n.b] : val[n.c]; break;
+        case KSelect: val[i] = (val[n.a] != 0.0) ? val[n.b] : val[n.c]; break;
 #endif
       }
     }
@@ -80,13 +82,15 @@ struct Tape {
         case KTanh: val[i] = std::tanh(val[n.a]); break;
         case KCos:  val[i] = std::cos(val[n.a]); break;
 #ifdef ET_ENABLE_CONTROL_FLOW
-        case KLt:   val[i] = val[n.a] <  val[n.b] ? 1.0 : 0.0; break;
-        case KLe:   val[i] = val[n.a] <= val[n.b] ? 1.0 : 0.0; break;
-        case KGt:   val[i] = val[n.a] >  val[n.b] ? 1.0 : 0.0; break;
-        case KGe:   val[i] = val[n.a] >= val[n.b] ? 1.0 : 0.0; break;
-        case KEq:   val[i] = val[n.a] == val[n.b] ? 1.0 : 0.0; break;
-        case KNe:   val[i] = val[n.a] != val[n.b] ? 1.0 : 0.0; break;
-        case KNot:  val[i] = (val[n.a] == 0.0) ? 1.0 : 0.0; break;
+        case KLt:     val[i] = val[n.a] <  val[n.b] ? 1.0 : 0.0; break;
+        case KLe:     val[i] = val[n.a] <= val[n.b] ? 1.0 : 0.0; break;
+        case KGt:     val[i] = val[n.a] >  val[n.b] ? 1.0 : 0.0; break;
+        case KGe:     val[i] = val[n.a] >= val[n.b] ? 1.0 : 0.0; break;
+        case KEq:     val[i] = val[n.a] == val[n.b] ? 1.0 : 0.0; break;
+        case KNe:     val[i] = val[n.a] != val[n.b] ? 1.0 : 0.0; break;
+        case KNot:    val[i] = (val[n.a] == 0.0) ? 1.0 : 0.0; break;
+        case KIf:     val[i] = (val[n.a] != 0.0) ? val[n.b] : val[n.c]; break;
+        case KSelect: val[i] = (val[n.a] != 0.0) ? val[n.b] : val[n.c]; break;
 #endif
       }
     }
@@ -139,6 +143,21 @@ struct Tape {
         case KCos:
           bar[n.a] -= bar[i] * std::sin(val[n.a]);
           break;
+#ifdef ET_ENABLE_CONTROL_FLOW
+        case KLt: case KLe: case KGt: case KGe: case KEq: case KNe: case KNot:
+          // No gradient into predicate inputs
+          break;
+        case KIf: {
+          bool cond = (val[n.a] != 0.0);
+          if (cond) bar[n.b] += bar[i]; else bar[n.c] += bar[i];
+          break;
+        }
+        case KSelect: {
+          bool cond = (val[n.a] != 0.0);
+          if (cond) bar[n.b] += bar[i]; else bar[n.c] += bar[i];
+          break;
+        }
+#endif
       }
     }
     std::size_t arity = 0;
@@ -148,6 +167,7 @@ struct Tape {
       if (nodes[i].kind == KVar) grad[nodes[i].var_index] += bar[i];
     return grad;
   }
+
 };
 
 struct TapeBackend {
@@ -210,6 +230,19 @@ struct TapeBackend {
     tape.nodes.push_back(n);
     return (int)tape.nodes.size() - 1;
   }
+
+#ifdef ET_ENABLE_CONTROL_FLOW
+  template <class Op>
+  result_type emitApply(Op, int a, int b, int c) {
+    Tape::Node n;
+    if constexpr (std::is_same<Op, IfOp>::value) n.kind = Tape::KIf;
+    else if constexpr (std::is_same<Op, SelectOp>::value) n.kind = Tape::KSelect;
+    else static_assert(!std::is_same<Op,Op>::value, "Ternary op not mapped to Tape");
+    n.a = a; n.b = b; n.c = c;
+    tape.nodes.push_back(n);
+    return (int)tape.nodes.size() - 1;
+  }
+#endif
 };
 
 } // namespace et

@@ -39,6 +39,9 @@ inline TorchCompiled compile_to_torch(const Expr& e, std::size_t arity) {
 // This uses a Torch C++ API that may vary across versions. Tested on Torch 2.3.x.
 // Enable by defining ET_TORCH_ENABLE_MODULE_WRAPPER at compile time for the target.
 #ifdef ET_TORCH_ENABLE_MODULE_WRAPPER
+  // Gate against Torch version: require >= 2.3
+  #if defined(TORCH_VERSION_MAJOR) && (TORCH_VERSION_MAJOR > 2 || (TORCH_VERSION_MAJOR == 2 && TORCH_VERSION_MINOR >= 3))
+    #define ET_TORCH_MODULE_WRAPPER_AVAILABLE 1
 inline torch::jit::Module make_script_module(const TorchCompiled& tc, const std::string& method_name = "forward") {
   torch::jit::Module m("ETModule");
   // Copy the graph so the Module owns its own instance
@@ -67,7 +70,8 @@ inline TorchMethodRunner make_torch_method_runner(const Expr& e, std::size_t ari
   auto mod = make_script_module(tc, method_name);
   return TorchMethodRunner(std::move(mod), method_name);
 }
-#endif
+  #endif // version guard
+#endif // ET_TORCH_ENABLE_MODULE_WRAPPER
 
 } // namespace et
 

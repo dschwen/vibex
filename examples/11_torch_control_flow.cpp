@@ -23,7 +23,7 @@ int main() {
   auto y_t = torch::where(x_t.gt(0), x_t + 1.0, x_t - 1.0);
   std::cout << "ATen result for x=[-2,0,3]: " << y_t << "\n";
 
-#ifdef ET_TORCH_ENABLE_MODULE_WRAPPER
+#if defined(ET_TORCH_ENABLE_MODULE_WRAPPER) && defined(ET_TORCH_MODULE_WRAPPER_AVAILABLE)
   // Build a ScriptModule and run forward with TorchScript
   auto runner = make_torch_method_runner(expr, /*arity=*/1);
   auto out_iv = runner({x_t});
