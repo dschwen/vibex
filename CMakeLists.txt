@@ -68,6 +68,12 @@ if(ET_WITH_TORCH AND ET_BUILD_TORCH_EXAMPLES)
   # Enable Torch features inside this example when requested
   target_link_libraries(06_ops_and_cse PRIVATE ${TORCH_LIBRARIES})
   target_compile_definitions(06_ops_and_cse PRIVATE ET_WITH_TORCH)
+
+  # Control-flow Torch example (Select + comparisons)
+  add_executable(11_torch_control_flow examples/11_torch_control_flow.cpp)
+  target_link_libraries(11_torch_control_flow PRIVATE et ${TORCH_LIBRARIES})
+  target_compile_definitions(11_torch_control_flow PRIVATE ET_WITH_TORCH ET_ENABLE_CONTROL_FLOW)
+  target_compile_features(11_torch_control_flow PRIVATE cxx_std_17)
 endif()
 
 # ------------------------
@@ -170,6 +176,13 @@ if(BUILD_TESTING)
     target_compile_definitions(et_torch_tests PRIVATE ET_WITH_TORCH)
     target_compile_features(et_torch_tests PRIVATE cxx_std_17)
     add_test(NAME et_torch COMMAND et_torch_tests)
+
+    # Control-flow Torch-gated tests
+    add_executable(et_torch_cf_tests tests/test_torch_control_flow.cpp)
+    target_link_libraries(et_torch_cf_tests PRIVATE et ${TORCH_LIBRARIES})
+    target_compile_definitions(et_torch_cf_tests PRIVATE ET_WITH_TORCH ET_ENABLE_CONTROL_FLOW)
+    target_compile_features(et_torch_cf_tests PRIVATE cxx_std_17)
+    add_test(NAME et_torch_cf COMMAND et_torch_cf_tests)
   endif()
 endif()
 

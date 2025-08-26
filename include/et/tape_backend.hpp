@@ -71,6 +71,7 @@ struct Tape {
         case KSub:  val[i] = val[n.a] - val[n.b]; break;
         case KMul:  val[i] = val[n.a] * val[n.b]; break;
         case KDiv:  val[i] = val[n.a] / val[n.b]; break;
+        case KPow:  val[i] = std::pow(val[n.a], val[n.b]); break;
         case KNeg:  val[i] = -val[n.a]; break;
         case KSin:  val[i] = std::sin(val[n.a]); break;
         case KExp:  val[i] = std::exp(val[n.a]); break;
@@ -79,10 +80,13 @@ struct Tape {
         case KTanh: val[i] = std::tanh(val[n.a]); break;
         case KCos:  val[i] = std::cos(val[n.a]); break;
 #ifdef ET_ENABLE_CONTROL_FLOW
-        case KLt: case KLe: case KGt: case KGe: case KEq: case KNe: case KNot:
-          // Non-differentiable predicates; treat as constants in backward
-          // val[i] already set above, bar doesn't propagate to inputs
-          break;
+        case KLt:   val[i] = val[n.a] <  val[n.b] ? 1.0 : 0.0; break;
+        case KLe:   val[i] = val[n.a] <= val[n.b] ? 1.0 : 0.0; break;
+        case KGt:   val[i] = val[n.a] >  val[n.b] ? 1.0 : 0.0; break;
+        case KGe:   val[i] = val[n.a] >= val[n.b] ? 1.0 : 0.0; break;
+        case KEq:   val[i] = val[n.a] == val[n.b] ? 1.0 : 0.0; break;
+        case KNe:   val[i] = val[n.a] != val[n.b] ? 1.0 : 0.0; break;
+        case KNot:  val[i] = (val[n.a] == 0.0) ? 1.0 : 0.0; break;
 #endif
       }
     }

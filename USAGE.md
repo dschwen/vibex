@@ -239,6 +239,45 @@ auto out = compile_hash_cse(f, tb);
 
 ---
 
+## 7) Control Flow (gated)
+
+Control-flow and predicates are available behind `ET_ENABLE_CONTROL_FLOW`. Define it at compile time for targets that use them (examples/tests do this via target_compile_definitions).
+
+- Comparisons: `<`, `<=`, `>`, `>=`, `==`, `!=` produce a boolean-like node (internally represented as numeric 0/1 for runtime eval).
+- Logical not: `!cond`.
+- Conditionals:
+  - `If(cond, then_expr, else_expr)`: control-flow branch. Only the chosen branch is evaluated. Intended for scalar conditions; do not commute/normalize across it.
+  - `Select(mask, on_true, on_false)`: elementwise conditional (like NumPy/torch `where`). Both branches are conceptually present; applies broadcasting where defined.
+
+AD semantics
+- Conditions/masks are non-differentiable. No gradients flow into them.
+- Symbolic diff mirrors the primal structure:
+  - `d If(c, a, b) = If(c, d a, d b)`
+  - `d Select(m, a, b) = Select(m, d a, d b)`
+
+Torch lowering (when also compiled with `-DET_WITH_TORCH=ON`)
+- Comparisons map to `aten::{lt,le,gt,ge,eq,ne}`.
+- `!cond` maps to `aten::logical_not`.
+- `If` maps to `prim::If` (use a scalar condition); `Select` maps to `aten::where` for elementwise masking.
+
+See also: `CONTROL_FLOW.md` for a deeper design write-up and tape/Torch details.
+
+### Torch convenience wrapper
+To hide boilerplate when exporting a single-graph function, use the thin wrapper when Torch is enabled:
+
+```cpp
+#ifdef ET_WITH_TORCH
+#  include "et/torch_wrapper.hpp"
+  auto [x] = Vars<double,1>();
+  auto expr = Select(x > lit(0.0), x + lit(1.0), x - lit(1.0));
+  auto tc = compile_to_torch(expr, /*arity=*/1);
+  tc.print(std::cout);        // pretty-print the graph
+  auto& g = tc.graph();       // access to underlying torch::jit::Graph if needed
+#endif
+```
+
+
+
 ## 7) Extending Vibex with new operations
 
 Add a tag with:

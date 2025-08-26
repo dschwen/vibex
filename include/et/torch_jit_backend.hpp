@@ -45,6 +45,9 @@ struct TorchJITBackend {
     else if constexpr (std::is_same<Op, LogOp>::value)  return mk("aten::log", a);
     else if constexpr (std::is_same<Op, SqrtOp>::value) return mk("aten::sqrt", a);
     else if constexpr (std::is_same<Op, TanhOp>::value) return mk("aten::tanh", a);
+    #ifdef ET_ENABLE_CONTROL_FLOW
+    else if constexpr (std::is_same<Op, NotOp>::value) return mk("aten::logical_not", a);
+    #endif
     else static_assert(!std::is_same<Op,Op>::value, "Unary op not mapped to Torch JIT");
   }
 
@@ -59,12 +62,14 @@ struct TorchJITBackend {
     else if constexpr (std::is_same<Op, MulOp>::value) return mk("aten::mul", a, b);
     else if constexpr (std::is_same<Op, DivOp>::value) return mk("aten::div", a, b);
     else if constexpr (std::is_same<Op, PowOp>::value) return mk("aten::pow", a, b);
+#ifdef ET_ENABLE_CONTROL_FLOW
     else if constexpr (std::is_same<Op, LtOp>::value)  return mk("aten::lt", a, b);
     else if constexpr (std::is_same<Op, LeOp>::value)  return mk("aten::le", a, b);
     else if constexpr (std::is_same<Op, GtOp>::value)  return mk("aten::gt", a, b);
     else if constexpr (std::is_same<Op, GeOp>::value)  return mk("aten::ge", a, b);
     else if constexpr (std::is_same<Op, EqOp>::value)  return mk("aten::eq", a, b);
     else if constexpr (std::is_same<Op, NeOp>::value)  return mk("aten::ne", a, b);
+#endif
     else static_assert(!std::is_same<Op,Op>::value, "Binary op not mapped to Torch JIT");
   }
 
@@ -98,19 +103,6 @@ struct TorchJITBackend {
     }
   }
 
-  template <class Op>
-  result_type emitApply(Op, result_type a) {
-    auto mk = [&](const char* q, result_type x){ auto n = g.create(c10::Symbol::fromQualString(q), {x}); g.insertNode(n); return n->output(); };
-    if constexpr (std::is_same<Op, NotOp>::value) return mk("aten::logical_not", a);
-    else if constexpr (std::is_same<Op, NegOp>::value) return mk("aten::neg", a); // keep unary neg mapping reachable
-    else if constexpr (std::is_same<Op, SinOp>::value) return mk("aten::sin", a);
-    else if constexpr (std::is_same<Op, CosOp>::value) return mk("aten::cos", a);
-    else if constexpr (std::is_same<Op, ExpOp>::value) return mk("aten::exp", a);
-    else if constexpr (std::is_same<Op, LogOp>::value) return mk("aten::log", a);
-    else if constexpr (std::is_same<Op, SqrtOp>::value) return mk("aten::sqrt", a);
-    else if constexpr (std::is_same<Op, TanhOp>::value) return mk("aten::tanh", a);
-    else static_assert(!std::is_same<Op,Op>::value, "Unary op not mapped to Torch JIT");
-  }
 #endif
 };
 #else
