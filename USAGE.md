@@ -273,6 +273,16 @@ To hide boilerplate when exporting a single-graph function, use the thin wrapper
   auto tc = compile_to_torch(expr, /*arity=*/1);
   tc.print(std::cout);        // pretty-print the graph
   auto& g = tc.graph();       // access to underlying torch::jit::Graph if needed
+#  ifdef ET_TORCH_ENABLE_MODULE_WRAPPER
+  // Optional: create a ScriptModule and run forward
+  auto mod = make_script_module(tc, "forward");
+  auto out = mod.get_method("forward")({torch::tensor(1.0)});
+  std::cout << out.toTensor() << "\n";
+  // Or, get a direct callable runner without touching Module/Method
+  auto runner = make_torch_method_runner(expr, /*arity=*/1);
+  auto out2 = runner({torch::tensor(1.0)});
+  std::cout << out2.toTensor() << "\n";
+#  endif
 #endif
 ```
 

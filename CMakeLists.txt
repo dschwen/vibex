@@ -19,7 +19,7 @@ endif()
 option(ET_WITH_TORCH "Enable TorchScript integrations" OFF)
 option(ET_BUILD_TORCH_EXAMPLES "Build Torch-based example binaries" OFF)
 option(ET_BUILD_TORCH_TESTS "Build Torch-based tests" OFF)
-option(ET_BUILD_CONTROL_FLOW_EXAMPLE "Build control-flow example" OFF)
+option(ET_BUILD_CONTROL_FLOW_EXAMPLE "Build control-flow example" ON)
 option(ET_BUILD_CONTROL_FLOW_TESTS "Build control-flow tests" OFF)
 
 # Increase maximum template instantiation depth
@@ -74,6 +74,17 @@ if(ET_WITH_TORCH AND ET_BUILD_TORCH_EXAMPLES)
   target_link_libraries(11_torch_control_flow PRIVATE et ${TORCH_LIBRARIES})
   target_compile_definitions(11_torch_control_flow PRIVATE ET_WITH_TORCH ET_ENABLE_CONTROL_FLOW)
   target_compile_features(11_torch_control_flow PRIVATE cxx_std_17)
+endif()
+
+# Also build the Torch control-flow example when Torch tests are enabled
+if(ET_WITH_TORCH AND ET_BUILD_TORCH_TESTS)
+  find_package(Torch REQUIRED)
+  if(NOT TARGET 11_torch_control_flow)
+    add_executable(11_torch_control_flow examples/11_torch_control_flow.cpp)
+    target_link_libraries(11_torch_control_flow PRIVATE et ${TORCH_LIBRARIES})
+    target_compile_definitions(11_torch_control_flow PRIVATE ET_WITH_TORCH ET_ENABLE_CONTROL_FLOW)
+    target_compile_features(11_torch_control_flow PRIVATE cxx_std_17)
+  endif()
 endif()
 
 # ------------------------
