@@ -194,11 +194,25 @@ struct IterOp {
   static auto d() { return lit(0.0); }
 };
 
+// Forward declare StateGrad placeholder used during symbolic differentiation
+template <std::size_t SIndex> struct StateGradOp;
+
 // Loop-carried state read by index – only meaningful inside loops; eval() returns 0 in scalar eval
 template <std::size_t SIndex>
 struct StateOp {
   static constexpr std::size_t arity = 0;
   static constexpr std::size_t state_index = SIndex;
+  template <class... Dummy>
+  static constexpr double eval(Dummy&&...) { return 0.0; }
+  template <std::size_t I>
+  static auto d() { return Apply<StateGradOp<SIndex>>{}; }
+};
+
+// Placeholder for derivative wrt loop state — only appears during symbolic diff;
+// we immediately replace it with State<I> when constructing the derivative loop.
+template <std::size_t SIndex>
+struct StateGradOp {
+  static constexpr std::size_t arity = 0;
   template <class... Dummy>
   static constexpr double eval(Dummy&&...) { return 0.0; }
   template <std::size_t I>
@@ -211,8 +225,67 @@ struct LoopForOp {
   static constexpr std::size_t arity = 1 + 2*K;
   template <class... Args>
   static constexpr double eval(Args&&...) { return 0.0; }
-  template <std::size_t I, class... Args>
-  static auto d(const Args&...) { return lit(0.0); }
+  // Replace StateGrad<I> placeholders with State<I> inside an expression tree
+  template <class Expr>
+  static auto replace_sgrad(const Expr& e) { return e; }
+  template <std::size_t J>
+  static auto replace_sgrad(const Apply<StateGradOp<J>>&) { return Apply<StateOp<J>>{}; }
+  template <class Op, class... Ch>
+  static auto replace_sgrad(const Apply<Op,Ch...>& a) {
+    return std::apply([&](const auto&... c){
+      return Apply<Op, decltype(replace_sgrad(c))...>( replace_sgrad(c)... );
+    }, a.ch);
+  }
+  template <class T, std::size_t IVar>
+  static auto replace_sgrad(const Var<T,IVar>& v) { return v; }
+  template <class T>
+  static auto replace_sgrad(const Const<T>& c) { return c; }
+
+  // Tuple helpers
+  template <std::size_t N, class Tuple, std::size_t... Is>
+  static auto tuple_take_impl(const Tuple& t, std::index_sequence<Is...>) { return std::make_tuple(std::get<Is>(t)...); }
+  template <std::size_t N, class Tuple>
+  static auto tuple_take(const Tuple& t) { return tuple_take_impl<N>(t, std::make_index_sequence<N>{}); }
+  template <std::size_t P, class Tuple, std::size_t... Is>
+  static auto tuple_drop_impl(const Tuple& t, std::index_sequence<Is...>) {
+    return std::make_tuple(std::get<P + Is>(t)...);
+  }
+  template <std::size_t P, class Tuple>
+  static auto tuple_drop(const Tuple& t) {
+    constexpr std::size_t M = std::tuple_size<std::decay_t<Tuple>>::value;
+    return tuple_drop_impl<P>(t, std::make_index_sequence<M - P>{});
+  }
+  template <class Tuple, class F, std::size_t... Is>
+  static auto tuple_transform_impl(const Tuple& t, F&& f, std::index_sequence<Is...>) {
+    return std::make_tuple(f(std::get<Is>(t))...);
+  }
+  template <class Tuple, class F>
+  static auto tuple_transform(const Tuple& t, F&& f) {
+    constexpr std::size_t M = std::tuple_size<std::decay_t<Tuple>>::value;
+    return tuple_transform_impl(t, std::forward<F>(f), std::make_index_sequence<M>{});
+  }
+  template <class F, class Tuple>
+  static auto tuple_apply_cat(F&& f, const Tuple& t) { return std::apply(std::forward<F>(f), t); }
+
+  template <std::size_t IVar, class NNode, class... Rest>
+  static auto d(const NNode& n, const Rest&... rest) {
+    // rest = [init0..initK-1, next0..nextK-1]
+    static_assert(sizeof...(Rest) == 2*K, "LoopForOp<K>::d expects 2*K trailing args");
+    // Build tuples for inits and nexts
+    auto tup = std::make_tuple(rest...);
+    auto inits = tuple_take<K>(tup);
+    auto nexts = tuple_drop<K>(tup);
+    // Compute init grads and next grads with StateGrad placeholders, then replace them
+    auto d_inits = tuple_transform(inits, [&](const auto& x){ return diff(x, std::integral_constant<std::size_t, IVar>{}); });
+    auto d_nexts_raw = tuple_transform(nexts, [&](const auto& x){ return diff(x, std::integral_constant<std::size_t, IVar>{}); });
+    auto d_nexts = tuple_transform(d_nexts_raw, [&](const auto& x){ return replace_sgrad(x); });
+    // Rebuild LoopForOp<K>(n, d_inits..., d_nexts...)
+    return tuple_apply_cat([&](const auto&... di){
+      return tuple_apply_cat([&](const auto&... dn){
+        return Apply<LoopForOp<K>, NNode, decltype(di)..., decltype(dn)...>(n, di..., dn...);
+      }, d_nexts);
+    }, d_inits);
+  }
 };
 
 // Extract J-th output of a loop

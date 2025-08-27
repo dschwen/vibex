@@ -294,96 +294,115 @@ struct Tape {
             st.swap(next);
             states.push_back(st);
           }
-          // Helper: value + grad wrt state for a given node in given ctx
-          struct VG { double v; std::vector<double> g; };
-          std::function<VG(int,const LoopCtx&,std::size_t)> vg = [&](int id, const LoopCtx& ctx, std::size_t Kloc) -> VG {
+          // Build representative Var node per input index
+          std::size_t arity = 0;
+          for (const auto& nd : nodes) if (nd.kind == KVar) arity = std::max(arity, nd.var_index+1);
+          std::vector<int> rep_var_node(arity, -1);
+          for (int nid = 0; nid < (int)nodes.size(); ++nid) if (nodes[nid].kind == KVar) {
+            auto vi = nodes[nid].var_index; if (rep_var_node[vi] == -1) rep_var_node[vi] = nid;
+          }
+          // Helper: value + grad wrt state and inputs for a given node in given ctx
+          struct VG { double v; std::vector<double> gs; std::vector<double> gi; };
+          std::function<VG(int,const LoopCtx&,std::size_t,std::size_t)> vg = [&](int id, const LoopCtx& ctx, std::size_t Kloc, std::size_t Iarity) -> VG {
             const auto& nn = nodes[id];
             switch (nn.kind) {
-              case KVar:   return VG{ inputs[nn.var_index], std::vector<double>(Kloc, 0.0)};
-              case KConst: return VG{ nn.c, std::vector<double>(Kloc, 0.0)};
-              case KIter:  return VG{ static_cast<double>(ctx.iter), std::vector<double>(Kloc, 0.0)};
+              case KVar:   { VG out{ inputs[nn.var_index], std::vector<double>(Kloc, 0.0), std::vector<double>(Iarity, 0.0)}; out.gi[nn.var_index] = 1.0; return out; }
+              case KConst: return VG{ nn.c, std::vector<double>(Kloc, 0.0), std::vector<double>(Iarity, 0.0)};
+              case KIter:  return VG{ static_cast<double>(ctx.iter), std::vector<double>(Kloc, 0.0), std::vector<double>(Iarity, 0.0)};
               case KStateRead: {
-                VG out{ ctx.state ? (*ctx.state)[nn.var_index] : 0.0, std::vector<double>(Kloc, 0.0)};
-                if (nn.var_index < Kloc) out.g[nn.var_index] = 1.0;
+                VG out{ ctx.state ? (*ctx.state)[nn.var_index] : 0.0, std::vector<double>(Kloc, 0.0), std::vector<double>(Iarity, 0.0)};
+                if (nn.var_index < Kloc) out.gs[nn.var_index] = 1.0;
                 return out;
               }
               case KAdd: {
-                auto A = vg(nn.a, ctx, Kloc); auto B = vg(nn.b, ctx, Kloc);
-                VG out{ A.v + B.v, std::move(A.g) };
-                for (std::size_t k = 0; k < Kloc; ++k) out.g[k] += B.g[k];
+                auto A = vg(nn.a, ctx, Kloc, Iarity); auto B = vg(nn.b, ctx, Kloc, Iarity);
+                VG out{ A.v + B.v, std::move(A.gs), std::move(A.gi) };
+                for (std::size_t k = 0; k < Kloc; ++k) out.gs[k] += B.gs[k];
+                for (std::size_t i = 0; i < Iarity; ++i) out.gi[i] += B.gi[i];
                 return out;
               }
               case KSub: {
-                auto A = vg(nn.a, ctx, Kloc); auto B = vg(nn.b, ctx, Kloc);
-                VG out{ A.v - B.v, std::move(A.g) };
-                for (std::size_t k = 0; k < Kloc; ++k) out.g[k] -= B.g[k];
+                auto A = vg(nn.a, ctx, Kloc, Iarity); auto B = vg(nn.b, ctx, Kloc, Iarity);
+                VG out{ A.v - B.v, std::move(A.gs), std::move(A.gi) };
+                for (std::size_t k = 0; k < Kloc; ++k) out.gs[k] -= B.gs[k];
+                for (std::size_t i = 0; i < Iarity; ++i) out.gi[i] -= B.gi[i];
                 return out;
               }
               case KMul: {
-                auto A = vg(nn.a, ctx, Kloc); auto B = vg(nn.b, ctx, Kloc);
-                VG out{ A.v * B.v, std::vector<double>(Kloc, 0.0)};
-                for (std::size_t k = 0; k < Kloc; ++k) out.g[k] = A.g[k]*B.v + B.g[k]*A.v;
+                auto A = vg(nn.a, ctx, Kloc, Iarity); auto B = vg(nn.b, ctx, Kloc, Iarity);
+                VG out{ A.v * B.v, std::vector<double>(Kloc, 0.0), std::vector<double>(Iarity, 0.0)};
+                for (std::size_t k = 0; k < Kloc; ++k) out.gs[k] = A.gs[k]*B.v + B.gs[k]*A.v;
+                for (std::size_t i = 0; i < Iarity; ++i) out.gi[i] = A.gi[i]*B.v + B.gi[i]*A.v;
                 return out;
               }
               case KDiv: {
-                auto A = vg(nn.a, ctx, Kloc); auto B = vg(nn.b, ctx, Kloc);
-                VG out{ A.v / B.v, std::vector<double>(Kloc, 0.0)};
+                auto A = vg(nn.a, ctx, Kloc, Iarity); auto B = vg(nn.b, ctx, Kloc, Iarity);
+                VG out{ A.v / B.v, std::vector<double>(Kloc, 0.0), std::vector<double>(Iarity, 0.0)};
                 double invb2 = 1.0 / (B.v * B.v);
-                for (std::size_t k = 0; k < Kloc; ++k) out.g[k] = (A.g[k]*B.v - B.g[k]*A.v) * invb2;
+                for (std::size_t k = 0; k < Kloc; ++k) out.gs[k] = (A.gs[k]*B.v - B.gs[k]*A.v) * invb2;
+                for (std::size_t i = 0; i < Iarity; ++i) out.gi[i] = (A.gi[i]*B.v - B.gi[i]*A.v) * invb2;
                 return out;
               }
               case KPow: {
-                auto A = vg(nn.a, ctx, Kloc); auto B = vg(nn.b, ctx, Kloc);
+                auto A = vg(nn.a, ctx, Kloc, Iarity); auto B = vg(nn.b, ctx, Kloc, Iarity);
                 double f = std::pow(A.v, B.v);
-                VG out{ f, std::vector<double>(Kloc, 0.0)};
-                for (std::size_t k = 0; k < Kloc; ++k) out.g[k] = f * ( B.g[k]*std::log(std::max(A.v, 1e-12)) + (B.v / std::max(A.v, 1e-12)) * A.g[k] );
+                VG out{ f, std::vector<double>(Kloc, 0.0), std::vector<double>(Iarity, 0.0)};
+                for (std::size_t k = 0; k < Kloc; ++k) out.gs[k] = f * ( B.gs[k]*std::log(std::max(A.v, 1e-12)) + (B.v / std::max(A.v, 1e-12)) * A.gs[k] );
+                for (std::size_t i = 0; i < Iarity; ++i) out.gi[i] = f * ( B.gi[i]*std::log(std::max(A.v, 1e-12)) + (B.v / std::max(A.v, 1e-12)) * A.gi[i] );
                 return out;
               }
-              case KNeg: { auto A = vg(nn.a, ctx, Kloc); for (double& x : A.g) x = -x; return VG{ -A.v, std::move(A.g) }; }
-              case KSin: { auto A = vg(nn.a, ctx, Kloc); double cv = std::cos(A.v); for (double& x : A.g) x *= cv; return VG{ std::sin(A.v), std::move(A.g) }; }
-              case KCos: { auto A = vg(nn.a, ctx, Kloc); double sv = std::sin(A.v); for (double& x : A.g) x *= -sv; return VG{ std::cos(A.v), std::move(A.g) }; }
-              case KExp: { auto A = vg(nn.a, ctx, Kloc); double ev = std::exp(A.v); for (double& x : A.g) x *= ev; return VG{ ev, std::move(A.g) }; }
-              case KLog: { auto A = vg(nn.a, ctx, Kloc); double inv = 1.0 / std::max(A.v, 1e-12); for (double& x : A.g) x *= inv; return VG{ std::log(A.v), std::move(A.g) }; }
-              case KSqrt:{ auto A = vg(nn.a, ctx, Kloc); double coef = 0.5 / std::sqrt(std::max(A.v, 1e-12)); for (double& x : A.g) x *= coef; return VG{ std::sqrt(A.v), std::move(A.g) }; }
-              case KTanh:{ auto A = vg(nn.a, ctx, Kloc); double t = std::tanh(A.v); double fac = 1.0 - t*t; for (double& x : A.g) x *= fac; return VG{ t, std::move(A.g) }; }
+              case KNeg: { auto A = vg(nn.a, ctx, Kloc, Iarity); for (double& x : A.gs) x = -x; for (double& y : A.gi) y = -y; return VG{ -A.v, std::move(A.gs), std::move(A.gi) }; }
+              case KSin: { auto A = vg(nn.a, ctx, Kloc, Iarity); double cv = std::cos(A.v); for (double& x : A.gs) x *= cv; for (double& y : A.gi) y *= cv; return VG{ std::sin(A.v), std::move(A.gs), std::move(A.gi) }; }
+              case KCos: { auto A = vg(nn.a, ctx, Kloc, Iarity); double sv = std::sin(A.v); for (double& x : A.gs) x *= -sv; for (double& y : A.gi) y *= -sv; return VG{ std::cos(A.v), std::move(A.gs), std::move(A.gi) }; }
+              case KExp: { auto A = vg(nn.a, ctx, Kloc, Iarity); double ev = std::exp(A.v); for (double& x : A.gs) x *= ev; for (double& y : A.gi) y *= ev; return VG{ ev, std::move(A.gs), std::move(A.gi) }; }
+              case KLog: { auto A = vg(nn.a, ctx, Kloc, Iarity); double inv = 1.0 / std::max(A.v, 1e-12); for (double& x : A.gs) x *= inv; for (double& y : A.gi) y *= inv; return VG{ std::log(A.v), std::move(A.gs), std::move(A.gi) }; }
+              case KSqrt:{ auto A = vg(nn.a, ctx, Kloc, Iarity); double coef = 0.5 / std::sqrt(std::max(A.v, 1e-12)); for (double& x : A.gs) x *= coef; for (double& y : A.gi) y *= coef; return VG{ std::sqrt(A.v), std::move(A.gs), std::move(A.gi) }; }
+              case KTanh:{ auto A = vg(nn.a, ctx, Kloc, Iarity); double t = std::tanh(A.v); double fac = 1.0 - t*t; for (double& x : A.gs) x *= fac; for (double& y : A.gi) y *= fac; return VG{ t, std::move(A.gs), std::move(A.gi) }; }
               case KLt: case KLe: case KGt: case KGe: case KEq: case KNe: case KNot: {
                 // Predicates: zero derivative wrt state
-                return VG{ rec_nm(id, ctx), std::vector<double>(Kloc, 0.0)};
+                return VG{ rec_nm(id, ctx), std::vector<double>(Kloc, 0.0), std::vector<double>(Iarity, 0.0)};
               }
               case KIf: {
                 auto c = rec_nm(nn.a, ctx);
-                if (c != 0.0) return vg(nn.b, ctx, Kloc);
-                return vg(nn.c, ctx, Kloc);
+                if (c != 0.0) return vg(nn.b, ctx, Kloc, Iarity);
+                return vg(nn.c, ctx, Kloc, Iarity);
               }
               case KSelect: {
                 auto c = rec_nm(nn.a, ctx);
-                if (c != 0.0) return vg(nn.b, ctx, Kloc);
-                return vg(nn.c, ctx, Kloc);
+                if (c != 0.0) return vg(nn.b, ctx, Kloc, Iarity);
+                return vg(nn.c, ctx, Kloc, Iarity);
               }
-              default: return VG{ rec_nm(id, ctx), std::vector<double>(Kloc, 0.0)};
+              default: return VG{ rec_nm(id, ctx), std::vector<double>(Kloc, 0.0), std::vector<double>(Iarity, 0.0)};
             }
           };
           // Reverse propagate g through iterations
           std::vector<double> gvec(K, 0.0);
           std::size_t J = n.var_index;
           if (J < K) gvec[J] = bar[i];
+          // Accumulator for input variable grads (by var index)
+          std::vector<double> g_inputs(arity, 0.0);
           for (std::size_t it = Niter; it-- > 0; ) {
             // Evaluate Jacobian rows at s_it
             LoopCtx inner{it, &states[it]};
             std::vector<std::vector<double>> Jrows(K, std::vector<double>(K, 0.0));
+            std::vector<std::vector<double>> GIrows(K, std::vector<double>(arity, 0.0));
             for (std::size_t k = 0; k < K; ++k) {
-              auto vgk = vg(lf.ch[1 + K + k], inner, K);
-              Jrows[k] = std::move(vgk.g);
+              auto vgk = vg(lf.ch[1 + K + k], inner, K, arity);
+              Jrows[k] = vgk.gs;
+              GIrows[k] = vgk.gi;
             }
             // g_prev = J^T * g_next
             std::vector<double> gprev(K, 0.0);
             for (std::size_t r = 0; r < K; ++r) {
               for (std::size_t c = 0; c < K; ++c) gprev[c] += Jrows[r][c] * gvec[r];
+              for (std::size_t vi = 0; vi < arity; ++vi) g_inputs[vi] += GIrows[r][vi] * gvec[r];
             }
             gvec.swap(gprev);
           }
           // Accumulate into init nodes
           for (std::size_t k = 0; k < K; ++k) bar[lf.ch[1 + k]] += gvec[k];
+          // Accumulate into representative Var nodes (one per input index)
+          for (std::size_t vi = 0; vi < arity; ++vi) if (rep_var_node[vi] != -1) bar[rep_var_node[vi]] += g_inputs[vi];
           break;
         }
 #endif

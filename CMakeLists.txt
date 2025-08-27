@@ -222,6 +222,11 @@ if(BUILD_TESTING)
   target_link_libraries(et_tests_tape_loop_vjp PRIVATE et)
   add_test(NAME et_tape_loop_vjp COMMAND et_tests_tape_loop_vjp)
 
+  # Symbolic loop gradients vs simple expectations
+  add_executable(et_tests_symbolic_loop_grad tests/test_symbolic_loop_grad.cpp)
+  target_link_libraries(et_tests_symbolic_loop_grad PRIVATE et)
+  add_test(NAME et_symbolic_loop_grad COMMAND et_tests_symbolic_loop_grad)
+
   if(ET_BUILD_CONTROL_FLOW_TESTS)
     add_executable(et_tests_control_flow tests/test_control_flow.cpp)
     target_link_libraries(et_tests_control_flow PRIVATE et)
