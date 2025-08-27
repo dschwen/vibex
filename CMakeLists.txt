@@ -61,6 +61,10 @@ if(ET_BUILD_CONTROL_FLOW_EXAMPLE)
   target_link_libraries(10_control_flow PRIVATE et)
 endif()
 
+# ForN loop example (single-carried state)
+add_executable(12_loop_forn examples/12_loop_forn.cpp)
+target_link_libraries(12_loop_forn PRIVATE et)
+
 if(ET_WITH_TORCH AND ET_BUILD_TORCH_EXAMPLES)
   find_package(Torch REQUIRED)
   # Ensure the executable can find libtorch's shared libraries at runtime (macOS)
@@ -200,6 +204,11 @@ if(BUILD_TESTING)
   add_executable(et_tests_denormalize_multi_sub tests/test_denormalize_multi_sub.cpp)
   target_link_libraries(et_tests_denormalize_multi_sub PRIVATE et)
   add_test(NAME et_denormalize_multi_sub COMMAND et_tests_denormalize_multi_sub)
+
+  # New ForN loop test
+  add_executable(et_tests_loop_forn tests/test_loop_forn.cpp)
+  target_link_libraries(et_tests_loop_forn PRIVATE et)
+  add_test(NAME et_loop_forn COMMAND et_tests_loop_forn)
 
   if(ET_BUILD_CONTROL_FLOW_TESTS)
     add_executable(et_tests_control_flow tests/test_control_flow.cpp)

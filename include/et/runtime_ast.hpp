@@ -21,7 +21,8 @@ enum class NodeKind : uint8_t {
   Add, Sub, Mul, Div, Pow,
   Neg, Sin, Cos, Exp, Log, Sqrt, Tanh
 #ifdef ET_ENABLE_CONTROL_FLOW
-  , If, Select, Lt, Le, Gt, Ge, Eq, Ne, Not
+  , If, Select, Lt, Le, Gt, Ge, Eq, Ne, Not,
+    Iter, StateRead, LoopFor, LoopOut
 #endif
 };
 
@@ -66,6 +67,10 @@ template <> struct nodekind_of<GeOp>    { static constexpr NodeKind value = Node
 template <> struct nodekind_of<EqOp>    { static constexpr NodeKind value = NodeKind::Eq; };
 template <> struct nodekind_of<NeOp>    { static constexpr NodeKind value = NodeKind::Ne; };
 template <> struct nodekind_of<NotOp>   { static constexpr NodeKind value = NodeKind::Not; };
+template <> struct nodekind_of<IterOp>  { static constexpr NodeKind value = NodeKind::Iter; };
+template <std::size_t I> struct nodekind_of<StateOp<I>> { static constexpr NodeKind value = NodeKind::StateRead; };
+template <std::size_t K> struct nodekind_of<LoopForOp<K>> { static constexpr NodeKind value = NodeKind::LoopFor; };
+template <std::size_t J> struct nodekind_of<LoopOutOp<J>> { static constexpr NodeKind value = NodeKind::LoopOut; };
 #endif
 
 // Compile ET expression to runtime graph (returns node id)
@@ -87,6 +92,30 @@ inline int compile_to_runtime(const Apply<Op,Ch...>& a, RGraph& g) {
   return g.add(std::move(n));
 }
 
+#ifdef ET_ENABLE_CONTROL_FLOW
+// Capture state index for StateRead
+template <std::size_t I>
+inline int compile_to_runtime(const Apply<StateOp<I>>&, RGraph& g) {
+  RNode n; n.kind = NodeKind::StateRead; n.var_index = I; return g.add(std::move(n));
+}
+// LoopFor with K carried states: children [N, inits..., nexts...]; store K in var_index
+template <std::size_t K, class... Children>
+inline int compile_to_runtime(const Apply<LoopForOp<K>, Children...>& a, RGraph& g) {
+  RNode n; n.kind = NodeKind::LoopFor; n.var_index = K;
+  constexpr std::size_t Nch = sizeof...(Children);
+  n.ch.reserve(Nch);
+  std::apply([&](const auto&... c){ (n.ch.push_back(compile_to_runtime(c, g)), ...); }, a.ch);
+  return g.add(std::move(n));
+}
+// LoopOut<J>(loop)
+template <std::size_t J, class LoopNode>
+inline int compile_to_runtime(const Apply<LoopOutOp<J>, LoopNode>& a, RGraph& g) {
+  RNode n; n.kind = NodeKind::LoopOut; n.var_index = J;
+  n.ch.push_back(compile_to_runtime(std::get<0>(a.ch), g));
+  return g.add(std::move(n));
+}
+#endif
+
 // Structural equality on subtrees
 inline bool r_equal(const RGraph& g, int a, int b) {
   if (a == b) return true;
@@ -104,6 +133,60 @@ inline bool r_equal(const RGraph& g, int a, int b) {
 // Evaluate runtime graph numerically given input vector (by var_index)
 inline double eval(const RGraph& g, const std::vector<double>& inputs) {
   std::vector<double> memo(g.nodes.size(), std::numeric_limits<double>::quiet_NaN());
+  struct LoopCtx { std::size_t iter = 0; const std::vector<double>* state = nullptr; };
+
+  // No-memo recursion used for loop bodies
+  std::function<double(int,const LoopCtx&)> rec_nm = [&](int id, const LoopCtx& ctx) -> double {
+    const RNode& n = g.nodes[id];
+    switch (n.kind) {
+      case NodeKind::Const: return n.cval;
+      case NodeKind::Var:   return inputs[n.var_index];
+      case NodeKind::Add: { double acc = rec_nm(n.ch[0], ctx); for (std::size_t i=1;i<n.ch.size();++i) acc += rec_nm(n.ch[i], ctx); return acc; }
+      case NodeKind::Mul: { double acc = rec_nm(n.ch[0], ctx); for (std::size_t i=1;i<n.ch.size();++i) acc *= rec_nm(n.ch[i], ctx); return acc; }
+      case NodeKind::Sub:   return rec_nm(n.ch[0], ctx) - rec_nm(n.ch[1], ctx);
+      case NodeKind::Div:   return rec_nm(n.ch[0], ctx) / rec_nm(n.ch[1], ctx);
+      case NodeKind::Pow:   return std::pow(rec_nm(n.ch[0], ctx), rec_nm(n.ch[1], ctx));
+      case NodeKind::Neg:   return -rec_nm(n.ch[0], ctx);
+      case NodeKind::Sin:   return std::sin(rec_nm(n.ch[0], ctx));
+      case NodeKind::Cos:   return std::cos(rec_nm(n.ch[0], ctx));
+      case NodeKind::Exp:   return std::exp(rec_nm(n.ch[0], ctx));
+      case NodeKind::Log:   return std::log(rec_nm(n.ch[0], ctx));
+      case NodeKind::Sqrt:  return std::sqrt(rec_nm(n.ch[0], ctx));
+      case NodeKind::Tanh:  return std::tanh(rec_nm(n.ch[0], ctx));
+#ifdef ET_ENABLE_CONTROL_FLOW
+      case NodeKind::If:    return (rec_nm(n.ch[0], ctx) != 0.0) ? rec_nm(n.ch[1], ctx) : rec_nm(n.ch[2], ctx);
+      case NodeKind::Select:return (rec_nm(n.ch[0], ctx) != 0.0) ? rec_nm(n.ch[1], ctx) : rec_nm(n.ch[2], ctx);
+      case NodeKind::Lt:    return rec_nm(n.ch[0], ctx) <  rec_nm(n.ch[1], ctx) ? 1.0 : 0.0;
+      case NodeKind::Le:    return rec_nm(n.ch[0], ctx) <= rec_nm(n.ch[1], ctx) ? 1.0 : 0.0;
+      case NodeKind::Gt:    return rec_nm(n.ch[0], ctx) >  rec_nm(n.ch[1], ctx) ? 1.0 : 0.0;
+      case NodeKind::Ge:    return rec_nm(n.ch[0], ctx) >= rec_nm(n.ch[1], ctx) ? 1.0 : 0.0;
+      case NodeKind::Eq:    return rec_nm(n.ch[0], ctx) == rec_nm(n.ch[1], ctx) ? 1.0 : 0.0;
+      case NodeKind::Ne:    return rec_nm(n.ch[0], ctx) != rec_nm(n.ch[1], ctx) ? 1.0 : 0.0;
+      case NodeKind::Not:   return (rec_nm(n.ch[0], ctx) == 0.0) ? 1.0 : 0.0;
+      case NodeKind::Iter:  return static_cast<double>(ctx.iter);
+      case NodeKind::StateRead: return ctx.state ? (*ctx.state)[n.var_index] : 0.0;
+      case NodeKind::LoopFor: return 0.0; // evaluated via LoopOut
+      case NodeKind::LoopOut: {
+        int loop_id = n.ch[0];
+        const RNode& lf = g.nodes[loop_id];
+        std::size_t K = lf.var_index;
+        std::size_t N = static_cast<std::size_t>(std::max(0.0, rec_nm(lf.ch[0], ctx)));
+        std::vector<double> st(K);
+        for (std::size_t k = 0; k < K; ++k) st[k] = rec_nm(lf.ch[1 + k], ctx);
+        for (std::size_t it = 0; it < N; ++it) {
+          LoopCtx inner{it, &st};
+          std::vector<double> next(K);
+          for (std::size_t k = 0; k < K; ++k) next[k] = rec_nm(lf.ch[1 + K + k], inner);
+          st.swap(next);
+        }
+        std::size_t J = n.var_index;
+        return (J < st.size()) ? st[J] : 0.0;
+      }
+#endif
+    }
+    return 0.0;
+  };
+
   std::function<double(int)> rec = [&](int id) -> double {
     double& slot = memo[id];
     if (slot == slot) return slot; // not NaN => already computed
@@ -133,10 +216,32 @@ inline double eval(const RGraph& g, const std::vector<double>& inputs) {
       case NodeKind::Eq:    slot = rec(n.ch[0]) == rec(n.ch[1]) ? 1.0 : 0.0; break;
       case NodeKind::Ne:    slot = rec(n.ch[0]) != rec(n.ch[1]) ? 1.0 : 0.0; break;
       case NodeKind::Not:   slot = (rec(n.ch[0]) == 0.0) ? 1.0 : 0.0; break;
+      case NodeKind::Iter:  slot = 0.0; break;
+      case NodeKind::StateRead: slot = 0.0; break;
+      case NodeKind::LoopFor: slot = 0.0; break; // evaluated via LoopOut
+      case NodeKind::LoopOut: {
+        // Evaluate underlying LoopFor with fresh context and return J-th
+        int loop_id = n.ch[0];
+        const RNode& lf = g.nodes[loop_id];
+        std::size_t K = lf.var_index;
+        std::size_t N = static_cast<std::size_t>(std::max(0.0, rec(lf.ch[0])));
+        std::vector<double> st(K);
+        for (std::size_t k = 0; k < K; ++k) st[k] = rec(lf.ch[1 + k]);
+        for (std::size_t it = 0; it < N; ++it) {
+          LoopCtx inner{it, &st};
+          std::vector<double> next(K);
+          for (std::size_t k = 0; k < K; ++k) next[k] = rec_nm(lf.ch[1 + K + k], inner);
+          st.swap(next);
+        }
+        std::size_t J = n.var_index;
+        slot = (J < st.size()) ? st[J] : 0.0;
+        break;
+      }
 #endif
     }
     return slot;
   };
+
   return rec(g.root);
 }
 
@@ -184,6 +289,18 @@ inline std::string r_to_string(const RGraph& g) {
       case NodeKind::Eq:    return std::string("Eq(") + rec(n.ch[0]) + "," + rec(n.ch[1]) + ")";
       case NodeKind::Ne:    return std::string("Ne(") + rec(n.ch[0]) + "," + rec(n.ch[1]) + ")";
       case NodeKind::Not:   return std::string("Not(") + rec(n.ch[0]) + ")";
+      case NodeKind::Iter:  return std::string("Iter()");
+      case NodeKind::StateRead: return std::string("State(") + std::to_string(n.var_index) + ")";
+      case NodeKind::LoopFor: {
+        // Render with dynamic K: [n, init..., next...]
+        std::size_t K = g.nodes[id].var_index;
+        std::string s = "LoopFor(";
+        s += rec(n.ch[0]);
+        for (std::size_t k = 0; k < K; ++k) { s += ","; s += rec(n.ch[1 + k]); }
+        for (std::size_t k = 0; k < K; ++k) { s += ","; s += rec(n.ch[1 + K + k]); }
+        s += ")"; return s;
+      }
+      case NodeKind::LoopOut: return std::string("Out(") + std::to_string(n.var_index) + "," + rec(n.ch[0]) + ")";
 #endif
     }
     return "";

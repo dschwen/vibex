@@ -180,6 +180,50 @@ struct SelectOp {
              diff(e, std::integral_constant<std::size_t,I>{}) );
   }
 };
+
+// ----------------
+// Loop placeholders
+// ----------------
+// Iteration index (0-based) – only meaningful inside loops; eval() returns 0 in scalar eval
+struct IterOp {
+  static constexpr std::size_t arity = 0;
+  static constexpr std::size_t returns_index = 1;
+  template <class... Dummy>
+  static constexpr std::size_t eval(Dummy&&...) { return 0u; }
+  template <std::size_t I>
+  static auto d() { return lit(0.0); }
+};
+
+// Loop-carried state read by index – only meaningful inside loops; eval() returns 0 in scalar eval
+template <std::size_t SIndex>
+struct StateOp {
+  static constexpr std::size_t arity = 0;
+  static constexpr std::size_t state_index = SIndex;
+  template <class... Dummy>
+  static constexpr double eval(Dummy&&...) { return 0.0; }
+  template <std::size_t I>
+  static auto d() { return lit(0.0); }
+};
+
+// General ForN loop over K carried states. Children: [N, inits..., nexts...]
+template <std::size_t K>
+struct LoopForOp {
+  static constexpr std::size_t arity = 1 + 2*K;
+  template <class... Args>
+  static constexpr double eval(Args&&...) { return 0.0; }
+  template <std::size_t I, class... Args>
+  static auto d(const Args&...) { return lit(0.0); }
+};
+
+// Extract J-th output of a loop
+template <std::size_t J>
+struct LoopOutOp {
+  static constexpr std::size_t arity = 1;
+  template <class A>
+  static constexpr double eval(const A&) { return 0.0; }
+  template <std::size_t I, class A>
+  static auto d(const A&) { return lit(0.0); }
+};
 #endif
 struct AddOp {
   static constexpr std::size_t arity = 2;
@@ -339,6 +383,26 @@ constexpr auto If(C c, T t, E e) { return Apply<IfOp, std::decay_t<C>, std::deca
 template <class M, class T, class E,
           std::enable_if_t<is_node_t<M>::value || is_node_t<T>::value || is_node_t<E>::value, int> = 0>
 constexpr auto Select(M m, T t, E e) { return Apply<SelectOp, std::decay_t<M>, std::decay_t<T>, std::decay_t<E>>(std::move(m), std::move(t), std::move(e)); }
+
+// Loop sugar
+inline constexpr auto Iter() { return Apply<IterOp>{}; }
+template <std::size_t I>
+inline constexpr auto State() { return Apply<StateOp<I>>{}; }
+
+// Loop core (K=1) and output selector convenience
+template <class N, class... InitsAndNexts,
+          std::enable_if_t<(sizeof...(InitsAndNexts) >= 2) && (is_node_t<N>::value || (std::disjunction<is_node<std::decay_t<InitsAndNexts>>...>::value)), int> = 0>
+constexpr auto LoopForCore1(N n, InitsAndNexts... rest) {
+  return Apply<LoopForOp<1>, std::decay_t<N>, std::decay_t<InitsAndNexts>...>(std::move(n), std::move(rest)...);
+}
+
+// ForN with one carried state: returns output 0 of core
+template <class N, class Init, class Next,
+          std::enable_if_t<is_node_t<N>::value || is_node_t<Init>::value || is_node_t<Next>::value, int> = 0>
+constexpr auto LoopForN(N n, Init init, Next next) {
+  auto core = LoopForCore1(std::move(n), std::move(init), std::move(next));
+  return Apply<LoopOutOp<0>, decltype(core)>(std::move(core));
+}
 #endif
 
 //===========================
