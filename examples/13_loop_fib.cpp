@@ -1,0 +1,43 @@
+#include <iostream>
+#define ET_ENABLE_CONTROL_FLOW 1
+#include "et/expr.hpp"
+#include "et/runtime_ast.hpp"
+#include "et/torch_jit_backend.hpp"
+
+using namespace et;
+
+int main() {
+  // Fibonacci via ForN with two carried states: (a,b) <- (b, a+b)
+  auto n = Var<double,0>{};
+  auto a0 = lit(0.0);
+  auto b0 = lit(1.0);
+  auto next_a = State<1>();
+  auto next_b = State<0>() + State<1>();
+  // Build core and select outputs a_N and b_N
+  auto core = Apply<LoopForOp<2>, decltype(n), decltype(a0), decltype(b0), decltype(next_a), decltype(next_b)>(n, a0, b0, next_a, next_b);
+  auto aN = Apply<LoopOutOp<0>, decltype(core)>(core);
+  auto bN = Apply<LoopOutOp<1>, decltype(core)>(core);
+
+  // Evaluate runtime for a few n
+  auto g_a = compile_to_runtime(aN);
+  auto g_b = compile_to_runtime(bN);
+  std::cout << "AST a_N: " << r_to_string(g_a) << "\n";
+  std::cout << "AST b_N: " << r_to_string(g_b) << "\n";
+  for (int k : {0,1,2,3,4,5,6,7,8}) {
+    double a = eval(g_a, {static_cast<double>(k)});
+    double b = eval(g_b, {static_cast<double>(k)});
+    std::cout << "n=" << k << " -> (a,b)=(" << a << "," << b << ")\n";
+  }
+
+#ifdef ET_WITH_TORCH
+  // Lower to Torch graph and print (no execution by default)
+  TorchJITBackend JB(1);
+  auto aN_v = compile(aN, JB);
+  (void)aN_v;
+  JB.g.registerOutput(aN_v);
+  std::cout << "Torch graph for fib a_N:\n";
+  std::cout << JB.g.toString() << "\n";
+#endif
+  return 0;
+}
+

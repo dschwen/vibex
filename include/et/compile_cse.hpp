@@ -37,6 +37,7 @@ template <> inline const char* op_name<GeOp>() { return "Ge"; }
 template <> inline const char* op_name<EqOp>() { return "Eq"; }
 template <> inline const char* op_name<NeOp>() { return "Ne"; }
 template <> inline const char* op_name<NotOp>() { return "Not"; }
+template <> inline const char* op_name<IterOp>() { return "Iter"; }
 #endif
 
 template <class Op, class... Ch>

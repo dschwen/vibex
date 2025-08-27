@@ -39,6 +39,10 @@ template<> struct op_id<GeOp>     { static constexpr std::uint64_t value = 0x46;
 template<> struct op_id<EqOp>     { static constexpr std::uint64_t value = 0x47; };
 template<> struct op_id<NotOp>    { static constexpr std::uint64_t value = 0x48; };
 template<> struct op_id<NeOp>     { static constexpr std::uint64_t value = 0x49; };
+template<> struct op_id<IterOp>   { static constexpr std::uint64_t value = 0x4A; };
+template<std::size_t I> struct op_id<StateOp<I>> { static constexpr std::uint64_t value = 0x4B + I; };
+template<std::size_t K> struct op_id<LoopForOp<K>> { static constexpr std::uint64_t value = 0x500 + K; };
+template<std::size_t J> struct op_id<LoopOutOp<J>> { static constexpr std::uint64_t value = 0x600 + J; };
 #endif
 
 // --- structural key for collision checks --------------------------------

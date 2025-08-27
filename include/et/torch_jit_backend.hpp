@@ -3,6 +3,7 @@
 #ifdef ET_WITH_TORCH
   #include <torch/script.h>
   #include <vector>
+  #include <array>
 #endif
 
 namespace et {
@@ -13,6 +14,8 @@ struct TorchJITBackend {
 
   torch::jit::Graph g;
   std::vector<torch::jit::Value*> inputs;
+  struct LoopCtx { torch::jit::Value* iter_int = nullptr; std::vector<torch::jit::Value*> state; };
+  std::vector<LoopCtx> loop_stack;
 
   explicit TorchJITBackend(std::size_t arity) {
     for (std::size_t i = 0; i < arity; ++i)
@@ -30,6 +33,44 @@ struct TorchJITBackend {
     n->t_(c10::Symbol::attr("value"), t);
     g.insertNode(n);
     return n->output();
+  }
+
+  // Helper: constant int
+  result_type makeConstInt(std::int64_t v) {
+    auto n = g.create(torch::jit::prim::Constant);
+    n->output()->setType(c10::IntType::get());
+    n->i_(c10::Symbol::attr("value"), v);
+    g.insertNode(n);
+    return n->output();
+  }
+  // Helper: constant bool
+  result_type makeConstBool(bool v) {
+    auto n = g.create(torch::jit::prim::Constant);
+    n->output()->setType(c10::BoolType::get());
+    n->i_(c10::Symbol::attr("value"), v ? 1 : 0);
+    g.insertNode(n);
+    return n->output();
+  }
+
+  // Zero-arg ops (Iter/State) resolved using current loop context
+  template <class Op>
+  result_type emitApply(Op) {
+    if constexpr (std::is_same<Op, IterOp>::value) {
+      if (!loop_stack.empty() && loop_stack.back().iter_int) {
+        auto n = g.create(torch::jit::prim::NumToTensor, {loop_stack.back().iter_int});
+        g.insertNode(n);
+        return n->output();
+      }
+      // Fallback: 0.0 tensor
+      return emitConst(Const<double>{0.0});
+    } else {
+      static_assert(!std::is_same<Op,Op>::value, "Zero-arg op not mapped to Torch JIT");
+    }
+  }
+  template <std::size_t I>
+  result_type emitApply(StateOp<I>) {
+    if (!loop_stack.empty() && I < loop_stack.back().state.size()) return loop_stack.back().state[I];
+    return emitConst(Const<double>{0.0});
   }
 
   template <class Op>
@@ -103,6 +144,55 @@ struct TorchJITBackend {
     }
   }
 
+  // LoopFor (K carried) lowered to prim::Loop + list construct
+  template <std::size_t K, class... Children>
+  result_type emitApply(LoopForOp<K>, Children... children) {
+    static_assert(K >= 1, "LoopForOp<K>: K must be >=1");
+    // Children: [N, init0..initK-1, next0..nextK-1]
+    std::array<result_type, 1 + 2*K> ch{children...};
+    // Cast N (tensor) -> int
+    auto n_int = g.create(c10::Symbol::fromQualString("aten::Int"), {ch[0]});
+    g.insertNode(n_int);
+    // prim::Loop with K outputs
+    auto* loop = g.create(torch::jit::prim::Loop, K);
+    loop->addInput(n_int->output());                // max_trip_count
+    loop->addInput(makeConstBool(true));            // initial cond = true
+    for (std::size_t k = 0; k < K; ++k) loop->addInput(ch[1 + k]); // carried inits
+    g.insertNode(loop);
+    auto* body = loop->addBlock();
+    {
+      torch::jit::WithInsertPoint guard(body);
+      auto* iter = body->addInput(); iter->setType(c10::IntType::get());
+      auto* cond = body->addInput(); cond->setType(c10::BoolType::get()); (void)cond;
+      std::vector<result_type> carried_in(K);
+      for (std::size_t k = 0; k < K; ++k) {
+        auto* si = body->addInput(); si->setType(c10::TensorType::get());
+        carried_in[k] = si;
+      }
+      loop_stack.push_back(LoopCtx{iter, carried_in});
+      std::array<result_type, K> next_out{};
+      for (std::size_t k = 0; k < K; ++k) next_out[k] = ch[1 + K + k];
+      loop_stack.pop_back();
+      auto* cond_true = makeConstBool(true);
+      body->registerOutput(cond_true);
+      for (std::size_t k = 0; k < K; ++k) body->registerOutput(next_out[k]);
+    }
+    // Collect loop outputs and pack into a list
+    std::vector<result_type> outs; outs.reserve(K);
+    for (std::size_t k = 0; k < K; ++k) outs.push_back(loop->output(k));
+    auto* list = g.createList(c10::TensorType::get(), outs);
+    g.insertNode(list);
+    return list->output();
+  }
+
+  // Out<J>(list)
+  template <std::size_t J>
+  result_type emitApply(LoopOutOp<J>, result_type list_v) {
+    auto* idx = makeConstInt(static_cast<std::int64_t>(J));
+    auto* get = g.create(c10::Symbol::fromQualString("aten::__getitem__"), {list_v, idx});
+    g.insertNode(get);
+    return get->output();
+  }
 #endif
 };
 #else

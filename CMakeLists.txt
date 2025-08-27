@@ -65,6 +65,9 @@ endif()
 add_executable(12_loop_forn examples/12_loop_forn.cpp)
 target_link_libraries(12_loop_forn PRIVATE et)
 
+add_executable(13_loop_fib examples/13_loop_fib.cpp)
+target_link_libraries(13_loop_fib PRIVATE et)
+
 if(ET_WITH_TORCH AND ET_BUILD_TORCH_EXAMPLES)
   find_package(Torch REQUIRED)
   # Ensure the executable can find libtorch's shared libraries at runtime (macOS)
@@ -209,6 +212,10 @@ if(BUILD_TESTING)
   add_executable(et_tests_loop_forn tests/test_loop_forn.cpp)
   target_link_libraries(et_tests_loop_forn PRIVATE et)
   add_test(NAME et_loop_forn COMMAND et_tests_loop_forn)
+
+  add_executable(et_tests_loop_forn_multi tests/test_loop_forn_multi.cpp)
+  target_link_libraries(et_tests_loop_forn_multi PRIVATE et)
+  add_test(NAME et_loop_forn_multi COMMAND et_tests_loop_forn_multi)
 
   if(ET_BUILD_CONTROL_FLOW_TESTS)
     add_executable(et_tests_control_flow tests/test_control_flow.cpp)

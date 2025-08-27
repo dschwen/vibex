@@ -385,6 +385,43 @@ inline auto build_et(const RGraph& g, int id) {
     case NodeKind::Eq:  return make_bin_build<T,EqOp>(g, n);
     case NodeKind::Ne:  return make_bin_build<T,NeOp>(g, n);
     case NodeKind::Not: { auto a = build_et<T>(g, n.ch[0]); return Apply<NotOp, decltype(a)>(std::move(a)); }
+    case NodeKind::Iter: { return Apply<IterOp>{}; }
+    case NodeKind::StateRead: {
+      switch (n.var_index) {
+        case 0: return Apply<StateOp<0>>{};
+        case 1: return Apply<StateOp<1>>{};
+        case 2: return Apply<StateOp<2>>{};
+        case 3: return Apply<StateOp<3>>{};
+        default: return Apply<StateOp<0>>{}; // fallback
+      }
+    }
+    case NodeKind::LoopFor: {
+      // Rebuild small K cases (1 or 2) for now
+      std::size_t K = n.var_index;
+      if (K == 1 && n.ch.size() == 3) {
+        auto c0 = build_et<T>(g, n.ch[0]);
+        auto c1 = build_et<T>(g, n.ch[1]);
+        auto c2 = build_et<T>(g, n.ch[2]);
+        return Apply<LoopForOp<1>, decltype(c0), decltype(c1), decltype(c2)>(std::move(c0), std::move(c1), std::move(c2));
+      } else if (K == 2 && n.ch.size() == 5) {
+        auto c0 = build_et<T>(g, n.ch[0]);
+        auto c1 = build_et<T>(g, n.ch[1]);
+        auto c2 = build_et<T>(g, n.ch[2]);
+        auto c3 = build_et<T>(g, n.ch[3]);
+        auto c4 = build_et<T>(g, n.ch[4]);
+        return Apply<LoopForOp<2>, decltype(c0), decltype(c1), decltype(c2), decltype(c3), decltype(c4)>(
+            std::move(c0), std::move(c1), std::move(c2), std::move(c3), std::move(c4));
+      }
+      return lit(static_cast<T>(0));
+    }
+    case NodeKind::LoopOut: {
+      auto inner = build_et<T>(g, n.ch[0]);
+      switch (n.var_index) {
+        case 0: return Apply<LoopOutOp<0>, decltype(inner)>(std::move(inner));
+        case 1: return Apply<LoopOutOp<1>, decltype(inner)>(std::move(inner));
+        default: return Apply<LoopOutOp<0>, decltype(inner)>(std::move(inner));
+      }
+    }
 #endif
   }
   return lit(static_cast<T>(0));
