@@ -34,6 +34,23 @@ inline auto compile_runtime(const RGraph& g, Backend& b) -> typename Backend::re
       case NodeKind::Sqrt:{ auto a = rec(n.ch[0]); return b.emitApply(SqrtOp{}, a); }
       case NodeKind::Tanh:{ auto a = rec(n.ch[0]); return b.emitApply(TanhOp{}, a); }
 #ifdef ET_ENABLE_CONTROL_FLOW
+      case NodeKind::Iter: {
+        // Zero-arg loop iterator; not lowered in generic compile_runtime.
+        return b.template emitConst<double>(Const<double>{0.0});
+      }
+      case NodeKind::StateRead: {
+        // State<I> read requires compile-time index. Not supported in generic compile_runtime.
+        // Fallback to Const(0) to avoid -Wswitch warnings when loops are unused.
+        return b.template emitConst<double>(Const<double>{0.0});
+      }
+      case NodeKind::LoopFor: {
+        // Generic compile_runtime path does not lower loops; emit zero to avoid warnings
+        return b.template emitConst<double>(Const<double>{0.0});
+      }
+      case NodeKind::LoopOut: {
+        // Generic compile_runtime path does not lower loops; emit zero to avoid warnings
+        return b.template emitConst<double>(Const<double>{0.0});
+      }
       case NodeKind::If: {
         auto c = rec(n.ch[0]); auto t = rec(n.ch[1]); auto e = rec(n.ch[2]);
         return b.emitApply(IfOp{}, c, t, e);
