@@ -128,19 +128,20 @@ Assumptions
 
 ## 5. Backends
 
-5.1 Runtime evaluator (`include/et/compile_runtime.hpp`)
+5.1 Runtime evaluator (`include/et/runtime_ast.hpp`)
 - Add execution for `If`: evaluate `cond` → bool; branch accordingly.
 - Add `Select`: elementwise dispatch with broadcasting when types support it.
-- Add `Loop`: implement counted loops; for `While`, re‑evaluate `cond(state)` each iteration. The `LoopState` read pulls the current carried state from the evaluator’s loop frame.
+- Add `Loop`: implement counted loops; for `While`, re‑evaluate `cond(state)` each iteration. The loop state read `State<I>` pulls the current carried state from the evaluator’s loop frame; `Iter()` exposes the 0‑based iteration counter.
 
 5.2 CSE/Hash CSE compilers (`include/et/compile_cse.hpp`, `include/et/compile_hash_cse.hpp`)
 - Treat `If`/`Select`/`Loop` as new op kinds in the visitors. For `If`/`Select`, dedupe identical subtrees as usual.
 - For `Loop`, dedupe identical `cond`/`body` subgraphs reused in multiple callers; loop frames remain distinct per use site at runtime.
 
 5.3 Tape backend (`include/et/tape_backend.hpp`)
-- Extend `enum class Kind` with `If`, `Select`, `LoopBegin`, `LoopIter`, `LoopEnd`.
-- Implement forward emission and reverse VJP routing per §4.2.
-- Ensure variables are still emitted by runtime index (`emitVar<T>(std::size_t idx)`) and that loop state reads `LoopState` use a separate tape slot managed by the backend (not a user input index).
+- Extend `Tape::Kind` with `KIter`, `KStateRead`, `KLoopFor`, `KLoopOut` along with the existing control‑flow kinds.
+- Forward execution: `KLoopOut` evaluates the referenced `KLoopFor` by iterating `n` times and evaluating `next_k` in a no‑memo sub‑evaluator that supplies `Iter()` and `State<I>` from a loop context. Returns the `J`‑th carried value.
+- Reverse VJP: initial version treats loops as opaque at VJP time (no gradient flows through the loop body). Follow‑up work will record per‑iteration carried values and run a reverse iteration to propagate adjoints into inputs and init state.
+- Variables are still emitted by runtime index via `emitVar<T>(idx)`.
 
 5.4 Torch JIT backend (`include/et/torch_jit_backend.hpp`)
 - IfOp → `prim::If`
@@ -149,6 +150,7 @@ Assumptions
 - SelectOp → `aten::where` (preferred) when mask and branches are tensor‑like; fallback to `prim::If` otherwise.
 - LoopOp → `prim::Loop`
   - Torch’s loop takes trip count and condition as inputs and models loop‑carried dependencies as block inputs/outputs. Lower `ForN` by supplying trip count `n` and a constant `true` condition; propagate state as carried deps; update the condition each iter for `While` using the condensed subgraph rooted at `cond_root`.
+  - Pack the K carried results into a Tensor list; `Out<J>` lowers to `aten::__getitem__(list, J)`.
 - Variable emission remains by runtime index (`emitVar<T>(idx)`); loop state is a carried dependency in the prim::Loop and not a Var.
 
 Gating
@@ -176,7 +178,7 @@ Gating
   - Unrolled `ForN` gradient matches numerical finite differences.
 - Tape
   - Branching test where only chosen branch accumulates gradients.
-  - Loop with recorded `iters_executed`; backward iterates in reverse.
+  - Loop: forward validates iterative semantics. VJP coverage to follow when adjoint threading is implemented.
 - Torch (gated)
   - Graph contains `prim::If`/`prim::Loop`/`aten::where` as appropriate; run a few example executions if Torch is available.
 
@@ -190,11 +192,11 @@ Gating
 
 Headers to touch
 - `include/et/expr.hpp`: add op tags, `LoopState` node, helpers.
-- `include/et/runtime_ast.hpp`: add `RKind::{If, Select, Loop, LoopState}` and node payloads.
+- `include/et/runtime_ast.hpp`: add `NodeKind::{If, Select, LoopFor, LoopOut, Iter, StateRead}` and node payloads.
 - `include/et/compile_runtime.hpp`: evaluator for new nodes; loop frame with current state binding for `LoopState` reads.
 - `include/et/simplify.hpp` and `include/et/normalize.hpp`: constant folding and small unrolls.
 - `include/et/compile_cse.hpp`, `include/et/compile_hash_cse.hpp`: include new kinds in visitors and hashing.
-- `include/et/tape_backend.hpp`: new tape kinds and VJP logic.
+- `include/et/tape_backend.hpp`: new tape kinds (Iter/StateRead/LoopFor/LoopOut), forward loop evaluation, VJP in a follow‑up.
 - `include/et/torch_jit_backend.hpp`: emit prim::If/Loop/aten::where.
 - `include/et/rules_default.hpp`: add guarded rules for the simple folds/pushes.
 - Examples: `examples/10_control_flow.cpp` (demo If/Select/ForN). Tests under `tests/` accordingly.

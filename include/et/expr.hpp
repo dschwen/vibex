@@ -222,7 +222,11 @@ struct LoopOutOp {
   template <class A>
   static constexpr double eval(const A&) { return 0.0; }
   template <std::size_t I, class A>
-  static auto d(const A&) { return lit(0.0); }
+  static auto d(const A& a) {
+    // Differentiate by pushing derivative through the Out selector
+    auto da = diff(a, std::integral_constant<std::size_t,I>{});
+    return Apply<LoopOutOp<J>, decltype(da)>(std::move(da));
+  }
 };
 #endif
 struct AddOp {
@@ -395,6 +399,18 @@ template <class N, class... InitsAndNexts,
 constexpr auto LoopForCore1(N n, InitsAndNexts... rest) {
   return Apply<LoopForOp<1>, std::decay_t<N>, std::decay_t<InitsAndNexts>...>(std::move(n), std::move(rest)...);
 }
+
+// Generic LoopFor builder for K carried states
+template <std::size_t K, class N, class... InitsAndNexts,
+          std::enable_if_t<(sizeof...(InitsAndNexts) == 2*K) && (is_node_t<N>::value || (std::disjunction<is_node<std::decay_t<InitsAndNexts>>...>::value)), int> = 0>
+constexpr auto LoopFor(N n, InitsAndNexts... rest) {
+  return Apply<LoopForOp<K>, std::decay_t<N>, std::decay_t<InitsAndNexts>...>(std::move(n), std::move(rest)...);
+}
+
+// Output selector helper: Out<J>(loop)
+template <std::size_t J, class Loop,
+          std::enable_if_t<is_node_t<Loop>::value, int> = 0>
+constexpr auto Out(Loop l) { return Apply<LoopOutOp<J>, std::decay_t<Loop>>(std::move(l)); }
 
 // ForN with one carried state: returns output 0 of core
 template <class N, class Init, class Next,

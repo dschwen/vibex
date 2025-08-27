@@ -262,6 +262,42 @@ Torch lowering (when also compiled with `-DET_WITH_TORCH=ON`)
 
 See also: `CONTROL_FLOW.md` for a deeper design write-up and tape/Torch details.
 
+### Counted Loops (ForN)
+
+Looping is available behind `ET_ENABLE_CONTROL_FLOW` and modeled as a structured, loop-carried form:
+
+- Placeholders inside the body:
+  - `Iter()`: current iteration index (0-based)
+  - `State<I>()`: I-th carried value at the current iteration
+- Builders:
+  - `LoopForN(n, init, next)`: single carried state; returns the final state after n iterations
+  - `LoopFor<K>(n, init0, ..., initK-1, next0, ..., nextK-1)`: K carried states; returns an opaque loop handle
+  - `Out<J>(loop)`: select the J-th final carried value from a loop
+
+Example: running sum and Fibonacci
+
+```cpp
+using namespace et;
+auto n = Var<double,0>{};
+
+// Running sum: s_{t+1} = s_t + t
+auto sum = LoopForN(n, /*init*/lit(0.0), /*next*/ State<0>() + Iter());
+double s5 = evaluate(sum, 5.0); // 10
+
+// Fibonacci via two carried states: (a,b) <- (b, a+b)
+auto core = LoopFor<2>(n, /*inits*/ lit(0.0), lit(1.0), /*nexts*/ State<1>(), State<0>() + State<1>());
+auto aN = Out<0>(core); // F(n)
+auto bN = Out<1>(core); // F(n+1)
+```
+
+Semantics and AD
+- The loop runs exactly `n` iterations (non-negative; fractional parts truncated in runtime eval). No gradients flow through `n`.
+- Symbolic `diff` for loops is conservative initially; gradients flow through body ops and carried states. Tape VJP support for loops is planned to propagate adjoints across iterations.
+
+Torch lowering (when enabled)
+- `LoopFor` lowers to `prim::Loop` with carried dependencies; `Out<J>` lowers to indexing into the loop’s carried outputs.
+- `Iter()` maps to the loop’s iteration index (cast to a Tensor); `State<I>()` maps to the I-th carried block input.
+
 ### Torch convenience wrapper
 To hide boilerplate when exporting a single-graph function, use the thin wrapper when Torch is enabled:
 

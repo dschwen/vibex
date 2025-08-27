@@ -13,10 +13,10 @@ int main() {
   auto b0 = lit(1.0);
   auto next_a = State<1>();
   auto next_b = State<0>() + State<1>();
-  // Build core and select outputs a_N and b_N
-  auto core = Apply<LoopForOp<2>, decltype(n), decltype(a0), decltype(b0), decltype(next_a), decltype(next_b)>(n, a0, b0, next_a, next_b);
-  auto aN = Apply<LoopOutOp<0>, decltype(core)>(core);
-  auto bN = Apply<LoopOutOp<1>, decltype(core)>(core);
+  // Build core and select outputs a_N and b_N via helpers
+  auto core = LoopFor<2>(n, a0, b0, next_a, next_b);
+  auto aN = Out<0>(core);
+  auto bN = Out<1>(core);
 
   // Evaluate runtime for a few n
   auto g_a = compile_to_runtime(aN);
@@ -40,4 +40,3 @@ int main() {
 #endif
   return 0;
 }
-
