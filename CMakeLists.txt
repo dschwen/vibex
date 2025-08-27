@@ -31,6 +31,7 @@ target_include_directories(et INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(ET_ENABLE_CONTROL_FLOW)
   target_compile_definitions(et INTERFACE ET_ENABLE_CONTROL_FLOW)
 endif()
+## Do not define ET_WITH_TORCH globally; only enable on torch targets
 
 add_executable(01_basic_eval examples/01_basic_eval.cpp)
 target_link_libraries(01_basic_eval PRIVATE et)
@@ -68,7 +69,7 @@ target_link_libraries(12_loop_forn PRIVATE et)
 add_executable(13_loop_fib examples/13_loop_fib.cpp)
 target_link_libraries(13_loop_fib PRIVATE et)
 
-if(ET_WITH_TORCH AND ET_BUILD_TORCH_EXAMPLES)
+if(ET_WITH_TORCH)
   find_package(Torch REQUIRED)
   # Ensure the executable can find libtorch's shared libraries at runtime (macOS)
   if(APPLE)
@@ -226,6 +227,14 @@ if(BUILD_TESTING)
   add_executable(et_tests_symbolic_loop_grad tests/test_symbolic_loop_grad.cpp)
   target_link_libraries(et_tests_symbolic_loop_grad PRIVATE et)
   add_test(NAME et_symbolic_loop_grad COMMAND et_tests_symbolic_loop_grad)
+
+  add_executable(et_tests_symbolic_vs_tape_loop tests/test_symbolic_vs_tape_loop.cpp)
+  target_link_libraries(et_tests_symbolic_vs_tape_loop PRIVATE et)
+  add_test(NAME et_symbolic_vs_tape_loop COMMAND et_tests_symbolic_vs_tape_loop)
+
+  add_executable(et_tests_symbolic_vs_tape_fib tests/test_symbolic_vs_tape_fib.cpp)
+  target_link_libraries(et_tests_symbolic_vs_tape_fib PRIVATE et)
+  add_test(NAME et_symbolic_vs_tape_fib COMMAND et_tests_symbolic_vs_tape_fib)
 
   if(ET_BUILD_CONTROL_FLOW_TESTS)
     add_executable(et_tests_control_flow tests/test_control_flow.cpp)

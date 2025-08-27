@@ -30,13 +30,23 @@ int main() {
   }
 
 #ifdef ET_WITH_TORCH
-  // Lower to Torch graph and print (no execution by default)
+  // Lower to Torch graphs for a_N and its symbolic gradients
   TorchJITBackend JB(1);
   auto aN_v = compile(aN, JB);
-  (void)aN_v;
   JB.g.registerOutput(aN_v);
   std::cout << "Torch graph for fib a_N:\n";
   std::cout << JB.g.toString() << "\n";
+
+  // Symbolic gradients wrt a0 and b0
+  auto da_da0 = diff(aN, a0);
+  auto da_db0 = diff(aN, b0);
+  TorchJITBackend JB2(1);
+  auto ga0_v = compile(da_da0, JB2);
+  auto gb0_v = compile(da_db0, JB2);
+  JB2.g.registerOutput(ga0_v);
+  JB2.g.registerOutput(gb0_v);
+  std::cout << "Torch graph for d a_N / d(a0,b0):\n";
+  std::cout << JB2.g.toString() << "\n";
 #endif
   return 0;
 }
