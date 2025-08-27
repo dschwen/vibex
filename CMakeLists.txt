@@ -217,6 +217,11 @@ if(BUILD_TESTING)
   target_link_libraries(et_tests_loop_forn_multi PRIVATE et)
   add_test(NAME et_loop_forn_multi COMMAND et_tests_loop_forn_multi)
 
+  # Tape VJP through loops (limited to init-state adjoints)
+  add_executable(et_tests_tape_loop_vjp tests/test_tape_loop_vjp.cpp)
+  target_link_libraries(et_tests_tape_loop_vjp PRIVATE et)
+  add_test(NAME et_tape_loop_vjp COMMAND et_tests_tape_loop_vjp)
+
   if(ET_BUILD_CONTROL_FLOW_TESTS)
     add_executable(et_tests_control_flow tests/test_control_flow.cpp)
     target_link_libraries(et_tests_control_flow PRIVATE et)

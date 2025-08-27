@@ -272,9 +272,120 @@ struct Tape {
           if (cond) bar[n.b] += bar[i]; else bar[n.c] += bar[i];
           break;
         }
-        case KIter: case KStateRead: case KLoopFor: case KLoopOut:
-          // TODO: add proper VJP through loops; currently no gradient flows through loop structure
+        case KIter: case KStateRead: case KLoopFor: {
+          // No direct adjoints; handled via KLoopOut
           break;
+        }
+        case KLoopOut: {
+          // Propagate gradient into loop initial states via reverse iteration of Jacobian^T
+          int loop_id = n.ch[0];
+          const auto& lf = nodes[loop_id];
+          std::size_t K = lf.var_index;
+          // Build initial state and iterate forward to compute per-iter states
+          std::size_t Niter = static_cast<std::size_t>(std::max(0.0, val[lf.ch[0]]));
+          std::vector<std::vector<double>> states; states.reserve(Niter+1);
+          std::vector<double> st(K);
+          for (std::size_t k = 0; k < K; ++k) st[k] = val[lf.ch[1 + k]];
+          states.push_back(st); // s0
+          for (std::size_t it = 0; it < Niter; ++it) {
+            LoopCtx inner{it, &st};
+            std::vector<double> next(K);
+            for (std::size_t k = 0; k < K; ++k) next[k] = rec_nm(lf.ch[1 + K + k], inner);
+            st.swap(next);
+            states.push_back(st);
+          }
+          // Helper: value + grad wrt state for a given node in given ctx
+          struct VG { double v; std::vector<double> g; };
+          std::function<VG(int,const LoopCtx&,std::size_t)> vg = [&](int id, const LoopCtx& ctx, std::size_t Kloc) -> VG {
+            const auto& nn = nodes[id];
+            switch (nn.kind) {
+              case KVar:   return VG{ inputs[nn.var_index], std::vector<double>(Kloc, 0.0)};
+              case KConst: return VG{ nn.c, std::vector<double>(Kloc, 0.0)};
+              case KIter:  return VG{ static_cast<double>(ctx.iter), std::vector<double>(Kloc, 0.0)};
+              case KStateRead: {
+                VG out{ ctx.state ? (*ctx.state)[nn.var_index] : 0.0, std::vector<double>(Kloc, 0.0)};
+                if (nn.var_index < Kloc) out.g[nn.var_index] = 1.0;
+                return out;
+              }
+              case KAdd: {
+                auto A = vg(nn.a, ctx, Kloc); auto B = vg(nn.b, ctx, Kloc);
+                VG out{ A.v + B.v, std::move(A.g) };
+                for (std::size_t k = 0; k < Kloc; ++k) out.g[k] += B.g[k];
+                return out;
+              }
+              case KSub: {
+                auto A = vg(nn.a, ctx, Kloc); auto B = vg(nn.b, ctx, Kloc);
+                VG out{ A.v - B.v, std::move(A.g) };
+                for (std::size_t k = 0; k < Kloc; ++k) out.g[k] -= B.g[k];
+                return out;
+              }
+              case KMul: {
+                auto A = vg(nn.a, ctx, Kloc); auto B = vg(nn.b, ctx, Kloc);
+                VG out{ A.v * B.v, std::vector<double>(Kloc, 0.0)};
+                for (std::size_t k = 0; k < Kloc; ++k) out.g[k] = A.g[k]*B.v + B.g[k]*A.v;
+                return out;
+              }
+              case KDiv: {
+                auto A = vg(nn.a, ctx, Kloc); auto B = vg(nn.b, ctx, Kloc);
+                VG out{ A.v / B.v, std::vector<double>(Kloc, 0.0)};
+                double invb2 = 1.0 / (B.v * B.v);
+                for (std::size_t k = 0; k < Kloc; ++k) out.g[k] = (A.g[k]*B.v - B.g[k]*A.v) * invb2;
+                return out;
+              }
+              case KPow: {
+                auto A = vg(nn.a, ctx, Kloc); auto B = vg(nn.b, ctx, Kloc);
+                double f = std::pow(A.v, B.v);
+                VG out{ f, std::vector<double>(Kloc, 0.0)};
+                for (std::size_t k = 0; k < Kloc; ++k) out.g[k] = f * ( B.g[k]*std::log(std::max(A.v, 1e-12)) + (B.v / std::max(A.v, 1e-12)) * A.g[k] );
+                return out;
+              }
+              case KNeg: { auto A = vg(nn.a, ctx, Kloc); for (double& x : A.g) x = -x; return VG{ -A.v, std::move(A.g) }; }
+              case KSin: { auto A = vg(nn.a, ctx, Kloc); double cv = std::cos(A.v); for (double& x : A.g) x *= cv; return VG{ std::sin(A.v), std::move(A.g) }; }
+              case KCos: { auto A = vg(nn.a, ctx, Kloc); double sv = std::sin(A.v); for (double& x : A.g) x *= -sv; return VG{ std::cos(A.v), std::move(A.g) }; }
+              case KExp: { auto A = vg(nn.a, ctx, Kloc); double ev = std::exp(A.v); for (double& x : A.g) x *= ev; return VG{ ev, std::move(A.g) }; }
+              case KLog: { auto A = vg(nn.a, ctx, Kloc); double inv = 1.0 / std::max(A.v, 1e-12); for (double& x : A.g) x *= inv; return VG{ std::log(A.v), std::move(A.g) }; }
+              case KSqrt:{ auto A = vg(nn.a, ctx, Kloc); double coef = 0.5 / std::sqrt(std::max(A.v, 1e-12)); for (double& x : A.g) x *= coef; return VG{ std::sqrt(A.v), std::move(A.g) }; }
+              case KTanh:{ auto A = vg(nn.a, ctx, Kloc); double t = std::tanh(A.v); double fac = 1.0 - t*t; for (double& x : A.g) x *= fac; return VG{ t, std::move(A.g) }; }
+              case KLt: case KLe: case KGt: case KGe: case KEq: case KNe: case KNot: {
+                // Predicates: zero derivative wrt state
+                return VG{ rec_nm(id, ctx), std::vector<double>(Kloc, 0.0)};
+              }
+              case KIf: {
+                auto c = rec_nm(nn.a, ctx);
+                if (c != 0.0) return vg(nn.b, ctx, Kloc);
+                return vg(nn.c, ctx, Kloc);
+              }
+              case KSelect: {
+                auto c = rec_nm(nn.a, ctx);
+                if (c != 0.0) return vg(nn.b, ctx, Kloc);
+                return vg(nn.c, ctx, Kloc);
+              }
+              default: return VG{ rec_nm(id, ctx), std::vector<double>(Kloc, 0.0)};
+            }
+          };
+          // Reverse propagate g through iterations
+          std::vector<double> gvec(K, 0.0);
+          std::size_t J = n.var_index;
+          if (J < K) gvec[J] = bar[i];
+          for (std::size_t it = Niter; it-- > 0; ) {
+            // Evaluate Jacobian rows at s_it
+            LoopCtx inner{it, &states[it]};
+            std::vector<std::vector<double>> Jrows(K, std::vector<double>(K, 0.0));
+            for (std::size_t k = 0; k < K; ++k) {
+              auto vgk = vg(lf.ch[1 + K + k], inner, K);
+              Jrows[k] = std::move(vgk.g);
+            }
+            // g_prev = J^T * g_next
+            std::vector<double> gprev(K, 0.0);
+            for (std::size_t r = 0; r < K; ++r) {
+              for (std::size_t c = 0; c < K; ++c) gprev[c] += Jrows[r][c] * gvec[r];
+            }
+            gvec.swap(gprev);
+          }
+          // Accumulate into init nodes
+          for (std::size_t k = 0; k < K; ++k) bar[lf.ch[1 + k]] += gvec[k];
+          break;
+        }
 #endif
       }
     }
