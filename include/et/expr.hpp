@@ -165,22 +165,85 @@ struct TanhOp {
 };
 
 // Operator sugar
-// Binary operators (only when at least one side is an ET node)
+// Binary operators with scalar lifting.
+// Prefer exact node–node overloads; when one side is scalar and convertible,
+// lift it to Const<value_type_of_t<Node>>.
+
+// Node + Node
 template <class L, class R,
-          std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
+          std::enable_if_t<is_node_t<L>::value && is_node_t<R>::value, int> = 0>
 constexpr auto operator+(L l, R r) { return Apply<AddOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
-
+// Node + Scalar
 template <class L, class R,
-          std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
+          std::enable_if_t<is_node_t<L>::value && !is_node_t<R>::value && std::is_convertible_v<R, value_type_of_t<L>>, int> = 0>
+constexpr auto operator+(L l, R r) {
+  using TL = value_type_of_t<L>;
+  return Apply<AddOp, std::decay_t<L>, Const<TL>>(std::move(l), lit(static_cast<TL>(r)));
+}
+// Scalar + Node
+template <class L, class R,
+          std::enable_if_t<!is_node_t<L>::value && is_node_t<R>::value && std::is_convertible_v<L, value_type_of_t<R>>, int> = 0>
+constexpr auto operator+(L l, R r) {
+  using TR = value_type_of_t<R>;
+  return Apply<AddOp, Const<TR>, std::decay_t<R>>(lit(static_cast<TR>(l)), std::move(r));
+}
+
+// Node - Node
+template <class L, class R,
+          std::enable_if_t<is_node_t<L>::value && is_node_t<R>::value, int> = 0>
 constexpr auto operator-(L l, R r) { return Apply<SubOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
-
+// Node - Scalar
 template <class L, class R,
-          std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
+          std::enable_if_t<is_node_t<L>::value && !is_node_t<R>::value && std::is_convertible_v<R, value_type_of_t<L>>, int> = 0>
+constexpr auto operator-(L l, R r) {
+  using TL = value_type_of_t<L>;
+  return Apply<SubOp, std::decay_t<L>, Const<TL>>(std::move(l), lit(static_cast<TL>(r)));
+}
+// Scalar - Node
+template <class L, class R,
+          std::enable_if_t<!is_node_t<L>::value && is_node_t<R>::value && std::is_convertible_v<L, value_type_of_t<R>>, int> = 0>
+constexpr auto operator-(L l, R r) {
+  using TR = value_type_of_t<R>;
+  return Apply<SubOp, Const<TR>, std::decay_t<R>>(lit(static_cast<TR>(l)), std::move(r));
+}
+
+// Node * Node
+template <class L, class R,
+          std::enable_if_t<is_node_t<L>::value && is_node_t<R>::value, int> = 0>
 constexpr auto operator*(L l, R r) { return Apply<MulOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
-
+// Node * Scalar
 template <class L, class R,
-          std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
+          std::enable_if_t<is_node_t<L>::value && !is_node_t<R>::value && std::is_convertible_v<R, value_type_of_t<L>>, int> = 0>
+constexpr auto operator*(L l, R r) {
+  using TL = value_type_of_t<L>;
+  return Apply<MulOp, std::decay_t<L>, Const<TL>>(std::move(l), lit(static_cast<TL>(r)));
+}
+// Scalar * Node
+template <class L, class R,
+          std::enable_if_t<!is_node_t<L>::value && is_node_t<R>::value && std::is_convertible_v<L, value_type_of_t<R>>, int> = 0>
+constexpr auto operator*(L l, R r) {
+  using TR = value_type_of_t<R>;
+  return Apply<MulOp, Const<TR>, std::decay_t<R>>(lit(static_cast<TR>(l)), std::move(r));
+}
+
+// Node / Node
+template <class L, class R,
+          std::enable_if_t<is_node_t<L>::value && is_node_t<R>::value, int> = 0>
 constexpr auto operator/(L l, R r) { return Apply<DivOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
+// Node / Scalar
+template <class L, class R,
+          std::enable_if_t<is_node_t<L>::value && !is_node_t<R>::value && std::is_convertible_v<R, value_type_of_t<L>>, int> = 0>
+constexpr auto operator/(L l, R r) {
+  using TL = value_type_of_t<L>;
+  return Apply<DivOp, std::decay_t<L>, Const<TL>>(std::move(l), lit(static_cast<TL>(r)));
+}
+// Scalar / Node
+template <class L, class R,
+          std::enable_if_t<!is_node_t<L>::value && is_node_t<R>::value && std::is_convertible_v<L, value_type_of_t<R>>, int> = 0>
+constexpr auto operator/(L l, R r) {
+  using TR = value_type_of_t<R>;
+  return Apply<DivOp, Const<TR>, std::decay_t<R>>(lit(static_cast<TR>(l)), std::move(r));
+}
 
 // Unary minus (only for ET nodes)
 template <class A,
@@ -206,9 +269,22 @@ constexpr auto sqrt(A a) { return Apply<SqrtOp, std::decay_t<A>>(std::move(a)); 
 template <class A, std::enable_if_t<is_node_t<A>::value, int> = 0>
 constexpr auto tanh(A a) { return Apply<TanhOp, std::decay_t<A>>(std::move(a)); }
 
-// Power wrapper (only when at least one side is an ET node)
-template <class L, class R, std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
+// Power wrapper with scalar lifting
+// Node ^ Node
+template <class L, class R, std::enable_if_t<is_node_t<L>::value && is_node_t<R>::value, int> = 0>
 constexpr auto pow(L l, R r) { return Apply<PowOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
+// Node ^ Scalar
+template <class L, class R, std::enable_if_t<is_node_t<L>::value && !is_node_t<R>::value && std::is_convertible_v<R, value_type_of_t<L>>, int> = 0>
+constexpr auto pow(L l, R r) {
+  using TL = value_type_of_t<L>;
+  return Apply<PowOp, std::decay_t<L>, Const<TL>>(std::move(l), lit(static_cast<TL>(r)));
+}
+// Scalar ^ Node
+template <class L, class R, std::enable_if_t<!is_node_t<L>::value && is_node_t<R>::value && std::is_convertible_v<L, value_type_of_t<R>>, int> = 0>
+constexpr auto pow(L l, R r) {
+  using TR = value_type_of_t<R>;
+  return Apply<PowOp, Const<TR>, std::decay_t<R>>(lit(static_cast<TR>(l)), std::move(r));
+}
 
 //===========================
 // Automatic differentiation

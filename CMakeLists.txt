@@ -79,6 +79,10 @@ if(BUILD_TESTING)
   target_link_libraries(et_tests_binary PRIVATE et)
   add_test(NAME et_binary COMMAND et_tests_binary)
 
+  add_executable(et_tests_scalar_lift tests/test_scalar_lift.cpp)
+  target_link_libraries(et_tests_scalar_lift PRIVATE et)
+  add_test(NAME et_scalar_lift COMMAND et_tests_scalar_lift)
+
   add_executable(et_tests_simplify tests/test_simplify.cpp)
   target_link_libraries(et_tests_simplify PRIVATE et)
   add_test(NAME et_simplify COMMAND et_tests_simplify)
