@@ -37,10 +37,14 @@ int main() {
   std::cout << "Torch graph for fib a_N:\n";
   std::cout << JB.g.toString() << "\n";
 
-  // Symbolic gradients wrt a0 and b0
-  auto da_da0 = diff(aN, a0);
-  auto da_db0 = diff(aN, b0);
-  TorchJITBackend JB2(1);
+  // Symbolic gradients wrt variable initial states (a0v,b0v)
+  auto a0v = Var<double,1>{};
+  auto b0v = Var<double,2>{};
+  auto core_v = LoopFor<2>(n, a0v, b0v, State<1>(), State<0>() + State<1>());
+  auto aN_vary = Out<0>(core_v);
+  auto da_da0 = diff(aN_vary, a0v);
+  auto da_db0 = diff(aN_vary, b0v);
+  TorchJITBackend JB2(3);
   auto ga0_v = compile(da_da0, JB2);
   auto gb0_v = compile(da_db0, JB2);
   JB2.g.registerOutput(ga0_v);

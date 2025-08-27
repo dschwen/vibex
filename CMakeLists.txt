@@ -71,6 +71,7 @@ target_link_libraries(13_loop_fib PRIVATE et)
 
 if(ET_WITH_TORCH)
   find_package(Torch REQUIRED)
+
   # Ensure the executable can find libtorch's shared libraries at runtime (macOS)
   if(APPLE)
     # Derive lib dir from Torch_DIR when TORCH_INSTALL_PREFIX is not defined
@@ -84,44 +85,36 @@ if(ET_WITH_TORCH)
     set(CMAKE_BUILD_RPATH "${_torch_rpath};${CMAKE_BUILD_RPATH}")
     set(CMAKE_INSTALL_RPATH "${_torch_rpath};${CMAKE_INSTALL_RPATH}")
   endif()
-  add_executable(05_torchjit examples/05_torchjit.cpp)
+  # Choose a single Torch link handle
   if(TARGET Torch::Torch)
-    target_link_libraries(05_torchjit PRIVATE et Torch::Torch)
+    set(ET_TORCH_LIB Torch::Torch)
   else()
-    target_link_libraries(05_torchjit PRIVATE et ${TORCH_LIBRARIES})
+    set(ET_TORCH_LIB ${TORCH_LIBRARIES})
   endif()
+
+  add_executable(05_torchjit examples/05_torchjit.cpp)
+  target_link_libraries(05_torchjit PRIVATE et ${ET_TORCH_LIB})
   target_compile_definitions(05_torchjit PRIVATE ET_WITH_TORCH)
   target_compile_features(05_torchjit PRIVATE cxx_std_17)
 
   # Enable Torch features inside this example when requested
-  if(TARGET Torch::Torch)
-    target_link_libraries(06_ops_and_cse PRIVATE Torch::Torch)
-  else()
-    target_link_libraries(06_ops_and_cse PRIVATE ${TORCH_LIBRARIES})
-  endif()
+  target_link_libraries(06_ops_and_cse PRIVATE ${ET_TORCH_LIB})
   target_compile_definitions(06_ops_and_cse PRIVATE ET_WITH_TORCH)
 
   # Control-flow Torch example (Select + comparisons)
   add_executable(11_torch_control_flow examples/11_torch_control_flow.cpp)
-  if(TARGET Torch::Torch)
-    target_link_libraries(11_torch_control_flow PRIVATE et Torch::Torch)
-  else()
-    target_link_libraries(11_torch_control_flow PRIVATE et ${TORCH_LIBRARIES})
-  endif()
+  target_link_libraries(11_torch_control_flow PRIVATE et ${ET_TORCH_LIB})
   target_compile_definitions(11_torch_control_flow PRIVATE ET_WITH_TORCH ET_TORCH_ENABLE_MODULE_WRAPPER ET_TORCH_ENABLE_DEFINE_WRAPPER)
   target_compile_features(11_torch_control_flow PRIVATE cxx_std_17)
-endif()
 
-# Also build the Torch control-flow example when Torch tests are enabled
-if(ET_WITH_TORCH AND ET_BUILD_TORCH_TESTS)
-  find_package(Torch REQUIRED)
-  if(NOT TARGET 11_torch_control_flow)
-    add_executable(11_torch_control_flow examples/11_torch_control_flow.cpp)
-    target_link_libraries(11_torch_control_flow PRIVATE et ${TORCH_LIBRARIES})
-    target_compile_definitions(11_torch_control_flow PRIVATE ET_WITH_TORCH ET_TORCH_ENABLE_MODULE_WRAPPER ET_TORCH_ENABLE_DEFINE_WRAPPER)
-    target_compile_features(11_torch_control_flow PRIVATE cxx_std_17)
+  # Enable Torch features in example 13 (loop + Torch graph printing)
+  if(TARGET 13_loop_fib)
+    target_link_libraries(13_loop_fib PRIVATE ${ET_TORCH_LIB})
+    target_compile_definitions(13_loop_fib PRIVATE ET_WITH_TORCH)
   endif()
 endif()
+
+## Torch example already built above; no need to duplicate under tests
 
 # ------------------------
 # Tests (assert-based + CTest)
