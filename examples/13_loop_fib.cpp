@@ -3,6 +3,7 @@
 #include "et/expr.hpp"
 #include "et/runtime_ast.hpp"
 #include "et/torch_jit_backend.hpp"
+#include "et/torch_wrapper.hpp"
 
 using namespace et;
 
@@ -51,6 +52,22 @@ int main() {
   JB2.g.registerOutput(gb0_v);
   std::cout << "Torch graph for d a_N / d(a0,b0):\n";
   std::cout << JB2.g.toString() << "\n";
+
+  // Optional: Execute aN via TorchScript wrappers (opt-in flags)
+#if defined(ET_TORCH_ENABLE_MODULE_WRAPPER) && defined(ET_TORCH_MODULE_WRAPPER_AVAILABLE)
+  auto runner = make_torch_method_runner(aN, /*arity=*/1);
+  auto out_iv = runner({torch::tensor(5.0)});
+  std::cout << "TorchScript forward aN(n=5): " << out_iv.toTensor().item<double>() << "\n";
+#elif defined(ET_TORCH_ENABLE_DEFINE_WRAPPER) && defined(ET_TORCH_HAS_GRAPH_EXECUTOR)
+  // Define()-based source generation does not yet support Loop/Out; use GraphExecutor instead
+  auto ge_runner = make_torch_graph_runner(aN, /*arity=*/1);
+  auto out_iv = ge_runner({torch::tensor(5.0)});
+  std::cout << "Torch GraphExecutor aN(n=5): " << out_iv.toTensor().item<double>() << "\n";
+#elif defined(ET_TORCH_HAS_GRAPH_EXECUTOR) && defined(ET_TORCH_USE_GRAPH_EXECUTOR)
+  auto ge_runner = make_torch_graph_runner(aN, /*arity=*/1);
+  auto out_iv = ge_runner({torch::tensor(5.0)});
+  std::cout << "Torch GraphExecutor aN(n=5): " << out_iv.toTensor().item<double>() << "\n";
+#endif
 #endif
   return 0;
 }

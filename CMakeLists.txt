@@ -114,7 +114,7 @@ if(ET_WITH_TORCH)
   # Enable Torch features in example 13 (loop + Torch graph printing)
   if(TARGET 13_loop_fib)
     target_link_libraries(13_loop_fib PRIVATE ${ET_TORCH_LIB})
-    target_compile_definitions(13_loop_fib PRIVATE ET_WITH_TORCH)
+    target_compile_definitions(13_loop_fib PRIVATE ET_WITH_TORCH ET_TORCH_ENABLE_MODULE_WRAPPER ET_TORCH_ENABLE_DEFINE_WRAPPER)
   endif()
 endif()
 
