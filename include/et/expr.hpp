@@ -363,68 +363,7 @@ struct LoopOutOp {
   static constexpr double eval(const A&) { return 0.0; }
   template <std::size_t I, class A>
   static auto d(const A& a) {
-    // If child is a LoopFor, build derivative loop directly (avoid placeholder leakage).
-    // Otherwise, fall back to generic diff.
-    struct lfor_traits { static constexpr bool value = false; };
-    template <std::size_t K_, class N, class... Rest>
-    struct lfor_traits_helper {
-      static constexpr bool value = true;
-      static constexpr std::size_t K = K_;
-      using LoopT = Apply<LoopForOp<K_>, N, Rest...>;
-    };
-    using DecA = std::decay_t<A>;
-    // Detect LoopFor apply type via partial specialization trick
-    constexpr bool is_loop = []{
-      if constexpr (std::is_same<DecA, DecA>::value) {
-        return lfor_traits::value; // default false; actual dispatch happens below in if constexpr
-      }
-      return false;
-    }();
-    // We can't partially specialize inside the function, so use if constexpr with a helper lambda
-    if constexpr (is_node_t<A>::value) {
-      if constexpr (std::is_same<DecA, DecA>::value) {
-        // Try to match Apply<LoopForOp<K>, ...> by using constexpr if on a generic lambda
-        auto build = [&](auto* dummy) {
-          using T = std::decay_t<decltype(*dummy)>;
-          using Base = lfor_traits;
-          if constexpr (std::is_same<T, Base>::value) {
-            // Fallback path: generic Out(d(loop))
-            auto da = diff(a, std::integral_constant<std::size_t,I>{});
-            return Apply<LoopOutOp<J>, decltype(da)>(std::move(da));
-          } else {
-            // Matched helper with concrete K,N,Rest...
-            constexpr std::size_t K = T::K;
-            const auto& loop = a;
-            const auto& n    = std::get<0>(loop.ch);
-            auto rest_all = LoopForOp<K>::template tuple_drop<1>(loop.ch);
-            auto inits    = LoopForOp<K>::template tuple_take<K>(rest_all);
-            auto nexts    = LoopForOp<K>::template tuple_drop<K>(rest_all);
-            auto d_inits  = LoopForOp<K>::template make_unit_inits<I>();
-            auto d_nexts  = LoopForOp<K>::tuple_transform(nexts, [&](const auto& x){
-              auto raw = diff(x, std::integral_constant<std::size_t, I>{});
-              auto Js  = LoopForOp<K>::replace_sgrad(LoopForOp<K>::keep_sgrad(raw));
-              auto b   = LoopForOp<K>::strip_sgrad(raw);
-              return Apply<AddOp, decltype(Js), decltype(b)>(Js, b);
-            });
-            auto d_loop = LoopForOp<K>::tuple_apply_cat([&](const auto&... di){
-              return LoopForOp<K>::tuple_apply_cat([&](const auto&... dn){
-                return Apply<LoopForOp<K>, decltype(n), decltype(di)..., decltype(dn)...>(n, di..., dn...);
-              }, d_nexts);
-            }, d_inits);
-            return Apply<LoopOutOp<J>, decltype(d_loop)>(std::move(d_loop));
-          }
-        };
-        // Select helper type
-        if constexpr (std::is_same<DecA, Apply<LoopForOp<1>, typename DecA::value_type>>::value) {
-          return build((lfor_traits_helper<1, typename std::tuple_element<0, decltype(a.ch)>::type>{}) );
-        } else {
-          // Generic path for unknown K: fallback to generic diff
-          auto da = diff(a, std::integral_constant<std::size_t,I>{});
-          return Apply<LoopOutOp<J>, decltype(da)>(std::move(da));
-        }
-      }
-    }
-    // Fallback: generic Out(d(child))
+    // Differentiate by pushing derivative through the Out selector
     auto da = diff(a, std::integral_constant<std::size_t,I>{});
     return Apply<LoopOutOp<J>, decltype(da)>(std::move(da));
   }
