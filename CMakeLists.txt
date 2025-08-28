@@ -182,6 +182,19 @@ if(BUILD_TESTING)
   target_link_libraries(et_tests_compile_hash_cse PRIVATE et)
   add_test(NAME et_compile_hash_cse COMMAND et_tests_compile_hash_cse)
 
+  # Extra loop coverage tests
+  add_executable(et_tests_runtime_to_et_loops tests/test_runtime_to_et_loops.cpp)
+  target_link_libraries(et_tests_runtime_to_et_loops PRIVATE et)
+  add_test(NAME et_runtime_to_et_loops COMMAND et_tests_runtime_to_et_loops)
+
+  add_executable(et_tests_compile_hash_cse_loops tests/test_compile_hash_cse_loops.cpp)
+  target_link_libraries(et_tests_compile_hash_cse_loops PRIVATE et)
+  add_test(NAME et_compile_hash_cse_loops COMMAND et_tests_compile_hash_cse_loops)
+
+  add_executable(et_tests_compile_runtime_loops_fallback tests/test_compile_runtime_loops_fallback.cpp)
+  target_link_libraries(et_tests_compile_runtime_loops_fallback PRIVATE et)
+  add_test(NAME et_compile_runtime_loops_fallback COMMAND et_tests_compile_runtime_loops_fallback)
+
   add_executable(et_tests_compile_runtime_var_indices tests/test_compile_runtime_var_indices.cpp)
   target_link_libraries(et_tests_compile_runtime_var_indices PRIVATE et)
   add_test(NAME et_compile_runtime_var_indices COMMAND et_tests_compile_runtime_var_indices)
@@ -285,6 +298,16 @@ if(ET_WITH_TORCH AND ET_BUILD_TORCH_TESTS)
   target_compile_definitions(et_torch_cf_tests PRIVATE ET_WITH_TORCH ET_ENABLE_CONTROL_FLOW)
   target_compile_features(et_torch_cf_tests PRIVATE cxx_std_17)
   add_test(NAME et_torch_cf COMMAND et_torch_cf_tests)
+
+  add_executable(et_torch_loop tests/test_torch_loop.cpp)
+  if(TARGET Torch::Torch)
+    target_link_libraries(et_torch_loop PRIVATE et Torch::Torch)
+  else()
+    target_link_libraries(et_torch_loop PRIVATE et ${TORCH_LIBRARIES})
+  endif()
+  target_compile_definitions(et_torch_loop PRIVATE ET_WITH_TORCH ET_ENABLE_CONTROL_FLOW)
+  target_compile_features(et_torch_loop PRIVATE cxx_std_17)
+  add_test(NAME et_torch_loop COMMAND et_torch_loop)
 endif()
 endif()
 
