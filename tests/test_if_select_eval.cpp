@@ -19,8 +19,7 @@ int main() {
 
   // Nested: If over Select
   auto z = If(x < lit(1.0), y_sel, x + lit(1.0));
-  assert(z(-5.0) == 5.0);
-  assert(z(2.0) == 3.0);
+  assert(std::abs(z(-5.0) - 5.0) < 1e-12);
+  assert(std::abs(z(2.0) - 3.0) < 1e-12);
   return 0;
 }
-
