@@ -76,11 +76,17 @@ template <class Op, class... Ch> struct is_node<Apply<Op,Ch...>> : std::true_typ
 template <class T>
 using is_node_t = is_node<std::decay_t<T>>;
 
+// Var type detection with compile-time index
+template <class T> struct is_var : std::false_type {};
+template <class T, std::size_t I> struct is_var<Var<T,I>> : std::true_type { static constexpr std::size_t index = I; using value_type = T; };
+
 //===========================
 // Ops (tags) and sugar
 //===========================
 // Optional control-flow and selection operators
 #ifdef ET_ENABLE_CONTROL_FLOW
+// Forward declarations for arithmetic ops used in LoopForOp::d
+struct AddOp; struct SubOp;
 // --- Comparisons and logical not (bool-valued) ---
 struct LtOp {
   static constexpr std::size_t arity = 2;
@@ -225,9 +231,13 @@ struct LoopForOp {
   static constexpr std::size_t arity = 1 + 2*K;
   template <class... Args>
   static constexpr double eval(Args&&...) { return 0.0; }
+  template <class X>
+  static auto zero_like(const X&) {
+    using T = value_type_of_t<X>;
+    return lit(static_cast<T>(0));
+  }
   // Replace StateGrad<I> placeholders with State<I> inside an expression tree
-  template <class Expr>
-  static auto replace_sgrad(const Expr& e) { return e; }
+  // Replacement: only defined for Var/Const/Apply and StateGrad
   template <std::size_t J>
   static auto replace_sgrad(const Apply<StateGradOp<J>>&) { return Apply<StateOp<J>>{}; }
   template <class Op, class... Ch>
@@ -240,6 +250,49 @@ struct LoopForOp {
   static auto replace_sgrad(const Var<T,IVar>& v) { return v; }
   template <class T>
   static auto replace_sgrad(const Const<T>& c) { return c; }
+
+  // Strip StateGrad placeholders to zero (keep only the pure-input derivative "b" part)
+  // Stripping: only defined for Var/Const/Apply and StateGrad
+  template <std::size_t J>
+  static auto strip_sgrad(const Apply<StateGradOp<J>>&) { return lit(0.0); }
+  template <class Op, class... Ch>
+  static auto strip_sgrad(const Apply<Op,Ch...>& a) {
+    return std::apply([&](const auto&... c){
+      return Apply<Op, decltype(strip_sgrad(c))...>( strip_sgrad(c)... );
+    }, a.ch);
+  }
+  template <class T, std::size_t IVar>
+  static auto strip_sgrad(const Var<T,IVar>& v) { return v; }
+  template <class T>
+  static auto strip_sgrad(const Const<T>& c) { return c; }
+
+  // Trait: does an expression subtree contain any StateGradOp<?>
+  template <class E> struct contains_sgrad : std::false_type {};
+  template <std::size_t J> struct contains_sgrad<Apply<StateGradOp<J>>> : std::true_type {};
+  template <class T, std::size_t IVar> struct contains_sgrad<Var<T,IVar>> : std::false_type {};
+  template <class T> struct contains_sgrad<Const<T>> : std::false_type {};
+  template <class Op, class... Ch>
+  struct contains_sgrad<Apply<Op,Ch...>>
+      : std::bool_constant<(contains_sgrad<std::decay_t<Ch>>::value || ...)> {};
+
+  // Keep only the part that depends on StateGrad placeholders
+  template <class T, std::size_t IVar>
+  static auto keep_sgrad(const Var<T,IVar>& v) { return zero_like(v); }
+  template <class T>
+  static auto keep_sgrad(const Const<T>& c) { return zero_like(c); }
+  template <std::size_t J>
+  static auto keep_sgrad(const Apply<StateGradOp<J>>&) { return Apply<StateGradOp<J>>{}; }
+  template <class Op, class... Ch>
+  static auto keep_sgrad(const Apply<Op,Ch...>& a) {
+    using E = Apply<Op,Ch...>;
+    if constexpr (!contains_sgrad<std::decay_t<E>>::value) {
+      return zero_like(a);
+    } else {
+      return std::apply([&](const auto&... c){
+        return Apply<Op, decltype(keep_sgrad(c))...>( keep_sgrad(c)... );
+      }, a.ch);
+    }
+  }
 
   // Tuple helpers
   template <std::size_t N, class Tuple, std::size_t... Is>
@@ -267,6 +320,14 @@ struct LoopForOp {
   template <class F, class Tuple>
   static auto tuple_apply_cat(F&& f, const Tuple& t) { return std::apply(std::forward<F>(f), t); }
 
+  // Build tuple of K inits equal to unit vector e_{IV} (typed as double)
+  template <std::size_t IV, std::size_t... Is>
+  static auto make_unit_inits_impl(std::index_sequence<Is...>) {
+    return std::make_tuple(lit(static_cast<double>((Is == IV) ? 1.0 : 0.0))...);
+  }
+  template <std::size_t IV>
+  static auto make_unit_inits() { return make_unit_inits_impl<IV>(std::make_index_sequence<K>{}); }
+
   template <std::size_t IVar, class NNode, class... Rest>
   static auto d(const NNode& n, const Rest&... rest) {
     // rest = [init0..initK-1, next0..nextK-1]
@@ -275,10 +336,16 @@ struct LoopForOp {
     auto tup = std::make_tuple(rest...);
     auto inits = tuple_take<K>(tup);
     auto nexts = tuple_drop<K>(tup);
-    // Compute init grads and next grads with StateGrad placeholders, then replace them
-    auto d_inits = tuple_transform(inits, [&](const auto& x){ return diff(x, std::integral_constant<std::size_t, IVar>{}); });
-    auto d_nexts_raw = tuple_transform(nexts, [&](const auto& x){ return diff(x, std::integral_constant<std::size_t, IVar>{}); });
-    auto d_nexts = tuple_transform(d_nexts_raw, [&](const auto& x){ return replace_sgrad(x); });
+    // Compute init grads as a unit vector in state space
+    auto d_inits = make_unit_inits<IVar>();
+    // For each next_k, build d_next_k = replace_sgrad(keep_sgrad(raw)) + strip_sgrad(raw)
+    auto d_nexts = tuple_transform(nexts, [&](const auto& next_k){
+      auto raw = diff(next_k, std::integral_constant<std::size_t, IVar>{});
+      auto Js_grad = keep_sgrad(raw);
+      auto Js = replace_sgrad(Js_grad);
+      auto b  = strip_sgrad(raw);
+      return Apply<AddOp, decltype(Js), decltype(b)>( Js, b );
+    });
     // Rebuild LoopForOp<K>(n, d_inits..., d_nexts...)
     return tuple_apply_cat([&](const auto&... di){
       return tuple_apply_cat([&](const auto&... dn){
@@ -296,7 +363,68 @@ struct LoopOutOp {
   static constexpr double eval(const A&) { return 0.0; }
   template <std::size_t I, class A>
   static auto d(const A& a) {
-    // Differentiate by pushing derivative through the Out selector
+    // If child is a LoopFor, build derivative loop directly (avoid placeholder leakage).
+    // Otherwise, fall back to generic diff.
+    struct lfor_traits { static constexpr bool value = false; };
+    template <std::size_t K_, class N, class... Rest>
+    struct lfor_traits_helper {
+      static constexpr bool value = true;
+      static constexpr std::size_t K = K_;
+      using LoopT = Apply<LoopForOp<K_>, N, Rest...>;
+    };
+    using DecA = std::decay_t<A>;
+    // Detect LoopFor apply type via partial specialization trick
+    constexpr bool is_loop = []{
+      if constexpr (std::is_same<DecA, DecA>::value) {
+        return lfor_traits::value; // default false; actual dispatch happens below in if constexpr
+      }
+      return false;
+    }();
+    // We can't partially specialize inside the function, so use if constexpr with a helper lambda
+    if constexpr (is_node_t<A>::value) {
+      if constexpr (std::is_same<DecA, DecA>::value) {
+        // Try to match Apply<LoopForOp<K>, ...> by using constexpr if on a generic lambda
+        auto build = [&](auto* dummy) {
+          using T = std::decay_t<decltype(*dummy)>;
+          using Base = lfor_traits;
+          if constexpr (std::is_same<T, Base>::value) {
+            // Fallback path: generic Out(d(loop))
+            auto da = diff(a, std::integral_constant<std::size_t,I>{});
+            return Apply<LoopOutOp<J>, decltype(da)>(std::move(da));
+          } else {
+            // Matched helper with concrete K,N,Rest...
+            constexpr std::size_t K = T::K;
+            const auto& loop = a;
+            const auto& n    = std::get<0>(loop.ch);
+            auto rest_all = LoopForOp<K>::template tuple_drop<1>(loop.ch);
+            auto inits    = LoopForOp<K>::template tuple_take<K>(rest_all);
+            auto nexts    = LoopForOp<K>::template tuple_drop<K>(rest_all);
+            auto d_inits  = LoopForOp<K>::template make_unit_inits<I>();
+            auto d_nexts  = LoopForOp<K>::tuple_transform(nexts, [&](const auto& x){
+              auto raw = diff(x, std::integral_constant<std::size_t, I>{});
+              auto Js  = LoopForOp<K>::replace_sgrad(LoopForOp<K>::keep_sgrad(raw));
+              auto b   = LoopForOp<K>::strip_sgrad(raw);
+              return Apply<AddOp, decltype(Js), decltype(b)>(Js, b);
+            });
+            auto d_loop = LoopForOp<K>::tuple_apply_cat([&](const auto&... di){
+              return LoopForOp<K>::tuple_apply_cat([&](const auto&... dn){
+                return Apply<LoopForOp<K>, decltype(n), decltype(di)..., decltype(dn)...>(n, di..., dn...);
+              }, d_nexts);
+            }, d_inits);
+            return Apply<LoopOutOp<J>, decltype(d_loop)>(std::move(d_loop));
+          }
+        };
+        // Select helper type
+        if constexpr (std::is_same<DecA, Apply<LoopForOp<1>, typename DecA::value_type>>::value) {
+          return build((lfor_traits_helper<1, typename std::tuple_element<0, decltype(a.ch)>::type>{}) );
+        } else {
+          // Generic path for unknown K: fallback to generic diff
+          auto da = diff(a, std::integral_constant<std::size_t,I>{});
+          return Apply<LoopOutOp<J>, decltype(da)>(std::move(da));
+        }
+      }
+    }
+    // Fallback: generic Out(d(child))
     auto da = diff(a, std::integral_constant<std::size_t,I>{});
     return Apply<LoopOutOp<J>, decltype(da)>(std::move(da));
   }
@@ -518,6 +646,38 @@ template <class Op, class... Ch, std::size_t I>
 constexpr auto diff(const Apply<Op,Ch...>& node, std::integral_constant<std::size_t,I>) {
   return std::apply([&](const auto&... c){ return Op::template d<I>(c...); }, node.ch);
 }
+
+#ifdef ET_ENABLE_CONTROL_FLOW
+// Specialized diff: Out<J>( LoopFor<K>(N, inits..., nexts...) )
+// Build derivative loop directly using keep_sgrad/strip_sgrad decomposition.
+template <std::size_t J, std::size_t K, class NNode, class... Rest, std::size_t I>
+constexpr auto diff(const Apply<LoopOutOp<J>, Apply<LoopForOp<K>, NNode, Rest...>>& node,
+                    std::integral_constant<std::size_t,I>) {
+  static_assert(sizeof...(Rest) == 2*K, "LoopOutOp<J> over LoopForOp<K> expects 2*K trailing children");
+  const auto& loop = std::get<0>(node.ch);
+  const auto& n    = std::get<0>(loop.ch);
+  // Split children after dropping N into inits and nexts
+  auto rest_all = LoopForOp<K>::template tuple_drop<1>(loop.ch);
+  auto inits    = LoopForOp<K>::template tuple_take<K>(rest_all);
+  auto nexts    = LoopForOp<K>::template tuple_drop<K>(rest_all);
+  // d_inits: unit basis e_I in state space
+  auto d_inits = LoopForOp<K>::template make_unit_inits<I>();
+  // d_nexts[k] = replace_sgrad(keep_sgrad(diff(next[k]))) + strip_sgrad(diff(next[k]))
+  auto d_nexts = LoopForOp<K>::tuple_transform(nexts, [&](const auto& x){
+    auto raw = diff(x, std::integral_constant<std::size_t, I>{});
+    auto Js  = LoopForOp<K>::replace_sgrad(LoopForOp<K>::keep_sgrad(raw));
+    auto b   = LoopForOp<K>::strip_sgrad(raw);
+    return Apply<AddOp, decltype(Js), decltype(b)>(Js, b);
+  });
+  // Rebuild LoopFor(K) with derivative inits and nexts, then select J
+  auto d_loop = LoopForOp<K>::tuple_apply_cat([&](const auto&... di){
+    return LoopForOp<K>::tuple_apply_cat([&](const auto&... dn){
+      return Apply<LoopForOp<K>, NNode, decltype(di)..., decltype(dn)...>(n, di..., dn...);
+    }, d_nexts);
+  }, d_inits);
+  return Apply<LoopOutOp<J>, decltype(d_loop)>(std::move(d_loop));
+}
+#endif
 
 // Op derivative definitions (after diff exists)
 template <std::size_t I, class ANode, class BNode>

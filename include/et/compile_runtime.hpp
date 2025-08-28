@@ -7,12 +7,39 @@
 
 namespace et {
 
+// Detection utilities for optional control-flow emission hooks
+namespace detail_compile_runtime {
+template <class B, class = void>
+struct has_emit_iter : std::false_type {};
+template <class B>
+struct has_emit_iter<B, std::void_t<decltype(std::declval<B&>().emitIter())>> : std::true_type {};
+
+template <class B, class = void>
+struct has_emit_stateread : std::false_type {};
+template <class B>
+struct has_emit_stateread<B, std::void_t<decltype(std::declval<B&>().emitStateRead(std::size_t{}))>> : std::true_type {};
+
+template <class B, class R, class = void>
+struct has_emit_loopfor : std::false_type {};
+template <class B, class R>
+struct has_emit_loopfor<B, R, std::void_t<decltype(std::declval<B&>().emitLoopFor(std::declval<std::size_t>(), std::declval<const std::vector<R>&>()))>> : std::true_type {};
+
+template <class B, class R, class = void>
+struct has_emit_loopout : std::false_type {};
+template <class B, class R>
+struct has_emit_loopout<B, R, std::void_t<decltype(std::declval<B&>().emitLoopOut(std::declval<std::size_t>(), std::declval<R>()))>> : std::true_type {};
+} // namespace detail_compile_runtime
+
 // Compile a runtime AST (RGraph) into a Backend using Backend's emitVar/emitConst/emitApply API.
 // Assumes Backend result_type is a handle and Backend supports the ET Op tag mapping.
 template <class Backend>
 inline auto compile_runtime(const RGraph& g, Backend& b) -> typename Backend::result_type {
   using R = typename Backend::result_type;
   std::vector<R> memo(g.nodes.size());
+  constexpr bool has_iter    = detail_compile_runtime::has_emit_iter<Backend>::value;
+  constexpr bool has_state   = detail_compile_runtime::has_emit_stateread<Backend>::value;
+  constexpr bool has_loopfor = detail_compile_runtime::has_emit_loopfor<Backend, R>::value;
+  constexpr bool has_loopout = detail_compile_runtime::has_emit_loopout<Backend, R>::value;
 
   std::function<R(int)> rec = [&](int id) -> R {
     const RNode& n = g.nodes[id];
@@ -35,21 +62,35 @@ inline auto compile_runtime(const RGraph& g, Backend& b) -> typename Backend::re
       case NodeKind::Tanh:{ auto a = rec(n.ch[0]); return b.emitApply(TanhOp{}, a); }
 #ifdef ET_ENABLE_CONTROL_FLOW
       case NodeKind::Iter: {
-        // Zero-arg loop iterator; not lowered in generic compile_runtime.
-        return b.template emitConst<double>(Const<double>{0.0});
+        if constexpr (has_iter) {
+          return b.emitIter();
+        } else {
+          return b.template emitConst<double>(Const<double>{0.0});
+        }
       }
       case NodeKind::StateRead: {
-        // State<I> read requires compile-time index. Not supported in generic compile_runtime.
-        // Fallback to Const(0) to avoid -Wswitch warnings when loops are unused.
-        return b.template emitConst<double>(Const<double>{0.0});
+        if constexpr (has_state) {
+          return b.emitStateRead(n.var_index);
+        } else {
+          return b.template emitConst<double>(Const<double>{0.0});
+        }
       }
       case NodeKind::LoopFor: {
-        // Generic compile_runtime path does not lower loops; emit zero to avoid warnings
-        return b.template emitConst<double>(Const<double>{0.0});
+        if constexpr (has_loopfor) {
+          std::vector<R> ch; ch.reserve(n.ch.size());
+          for (int cid : n.ch) ch.push_back(rec(cid));
+          return b.emitLoopFor(n.var_index, ch);
+        } else {
+          return b.template emitConst<double>(Const<double>{0.0});
+        }
       }
       case NodeKind::LoopOut: {
-        // Generic compile_runtime path does not lower loops; emit zero to avoid warnings
-        return b.template emitConst<double>(Const<double>{0.0});
+        if constexpr (has_loopout) {
+          auto loop_id = rec(n.ch[0]);
+          return b.emitLoopOut(n.var_index, loop_id);
+        } else {
+          return b.template emitConst<double>(Const<double>{0.0});
+        }
       }
       case NodeKind::If: {
         auto c = rec(n.ch[0]); auto t = rec(n.ch[1]); auto e = rec(n.ch[2]);

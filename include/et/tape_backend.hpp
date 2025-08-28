@@ -438,6 +438,34 @@ struct TapeBackend {
     return (int)tape.nodes.size() - 1;
   }
 
+  // Non-templated helpers to allow generic lowering from a runtime graph
+  // These mirror the specialized emitApply variants below but avoid requiring
+  // compile-time indices for control-flow constructs.
+#ifdef ET_ENABLE_CONTROL_FLOW
+  // Iteration index placeholder
+  result_type emitIter() {
+    Tape::Node n; n.kind = Tape::KIter; tape.nodes.push_back(n); return (int)tape.nodes.size() - 1;
+  }
+  // Loop state read by runtime index
+  result_type emitStateRead(std::size_t idx) {
+    Tape::Node n; n.kind = Tape::KStateRead; n.var_index = idx; tape.nodes.push_back(n); return (int)tape.nodes.size() - 1;
+  }
+  // LoopFor with K carried states; children layout: [N, inits..., nexts...]
+  result_type emitLoopFor(std::size_t K, const std::vector<result_type>& ch) {
+    Tape::Node n; n.kind = Tape::KLoopFor; n.var_index = K;
+    n.ch.reserve(ch.size());
+    for (auto id : ch) n.ch.push_back(id);
+    tape.nodes.push_back(std::move(n));
+    return (int)tape.nodes.size() - 1;
+  }
+  // Out<J>(loop)
+  result_type emitLoopOut(std::size_t J, result_type loop_id) {
+    Tape::Node n; n.kind = Tape::KLoopOut; n.var_index = J; n.ch = {loop_id};
+    tape.nodes.push_back(std::move(n));
+    return (int)tape.nodes.size() - 1;
+  }
+#endif
+
   template <class Op>
   result_type emitApply(Op, int a) {
     Tape::Node n;
