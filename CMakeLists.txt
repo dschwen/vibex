@@ -265,6 +265,20 @@ if(BUILD_TESTING)
     add_test(NAME et_control_flow COMMAND et_tests_control_flow)
   endif()
 
+  # Control flow coverage: If/Select eval + gradients
+  add_executable(et_tests_if_select_eval tests/test_if_select_eval.cpp)
+  target_link_libraries(et_tests_if_select_eval PRIVATE et)
+  add_test(NAME et_if_select_eval COMMAND et_tests_if_select_eval)
+
+  add_executable(et_tests_if_select_grad tests/test_if_select_grad.cpp)
+  target_link_libraries(et_tests_if_select_grad PRIVATE et)
+  add_test(NAME et_if_select_grad COMMAND et_tests_if_select_grad)
+
+  # Loop body variant with If
+  add_executable(et_tests_loop_body_if tests/test_loop_body_if.cpp)
+  target_link_libraries(et_tests_loop_body_if PRIVATE et)
+  add_test(NAME et_loop_body_if COMMAND et_tests_loop_body_if)
+
 if(ET_WITH_TORCH AND ET_BUILD_TORCH_TESTS)
   find_package(Torch REQUIRED)
   if(APPLE)
@@ -298,6 +312,16 @@ if(ET_WITH_TORCH AND ET_BUILD_TORCH_TESTS)
   target_compile_definitions(et_torch_cf_tests PRIVATE ET_WITH_TORCH ET_ENABLE_CONTROL_FLOW)
   target_compile_features(et_torch_cf_tests PRIVATE cxx_std_17)
   add_test(NAME et_torch_cf COMMAND et_torch_cf_tests)
+
+  add_executable(et_torch_select_exec tests/test_torch_select_exec.cpp)
+  if(TARGET Torch::Torch)
+    target_link_libraries(et_torch_select_exec PRIVATE et Torch::Torch)
+  else()
+    target_link_libraries(et_torch_select_exec PRIVATE et ${TORCH_LIBRARIES})
+  endif()
+  target_compile_definitions(et_torch_select_exec PRIVATE ET_WITH_TORCH ET_ENABLE_CONTROL_FLOW)
+  target_compile_features(et_torch_select_exec PRIVATE cxx_std_17)
+  add_test(NAME et_torch_select_exec COMMAND et_torch_select_exec)
 
   add_executable(et_torch_loop tests/test_torch_loop.cpp)
   if(TARGET Torch::Torch)

@@ -520,13 +520,13 @@ struct TapeBackend {
   }
 
 #ifdef ET_ENABLE_CONTROL_FLOW
-  template <class Op>
-  result_type emitApply(Op, int a, int b, int c) {
-    Tape::Node n;
-    if constexpr (std::is_same<Op, IfOp>::value) n.kind = Tape::KIf;
-    else if constexpr (std::is_same<Op, SelectOp>::value) n.kind = Tape::KSelect;
-    else static_assert(!std::is_same<Op,Op>::value, "Ternary op not mapped to Tape");
-    n.a = a; n.b = b; n.c = c;
+  inline result_type emitApply(IfOp, int a, int b, int c) {
+    Tape::Node n; n.kind = Tape::KIf; n.a = a; n.b = b; n.c = c;
+    tape.nodes.push_back(n);
+    return (int)tape.nodes.size() - 1;
+  }
+  inline result_type emitApply(SelectOp, int a, int b, int c) {
+    Tape::Node n; n.kind = Tape::KSelect; n.a = a; n.b = b; n.c = c;
     tape.nodes.push_back(n);
     return (int)tape.nodes.size() - 1;
   }
