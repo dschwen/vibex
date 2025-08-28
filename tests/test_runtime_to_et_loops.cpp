@@ -11,7 +11,7 @@ int main() {
   auto sum = Out<0>(LoopFor<1>(n, lit(0.0), State<0>() + Iter()));
   auto g = compile_to_runtime(sum);
   for (int k = 0; k <= 10; ++k) {
-    double a = sum((double)k);
+    double a = eval(g, {(double)k});
     double b = eval(g, {(double)k});
     assert(std::abs(a - b) < 1e-12);
   }

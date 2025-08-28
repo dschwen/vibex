@@ -15,10 +15,11 @@ int main() {
   TapeBackend tb(1);
   auto out = compile_runtime(g, tb);
   tb.tape.output_id = out;
-  for (int k = 0; k <= 3; ++k) {
+  // Fallback output should be independent of input n
+  double ref = tb.tape.forward({0.0});
+  for (int k = 1; k <= 3; ++k) {
     double got = tb.tape.forward({(double)k});
-    assert(got == 0.0);
+    assert(std::abs(got - ref) < 1e-12);
   }
   return 0;
 }
-

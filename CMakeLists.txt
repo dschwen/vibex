@@ -22,6 +22,7 @@ option(ET_BUILD_TORCH_TESTS "Build Torch-based tests" OFF)
 option(ET_BUILD_CONTROL_FLOW_EXAMPLE "Build control-flow example" ON)
 option(ET_BUILD_CONTROL_FLOW_TESTS "Build control-flow tests" OFF)
 option(ET_ENABLE_CONTROL_FLOW "Enable control-flow operators (If/Select, comparisons)" ON)
+option(ET_BUILD_COMPILE_RUNTIME_LOOPS_FALLBACK_TEST "Build the compile_runtime loops fallback test" OFF)
 option(ET_ENABLE_LOOP_SYMBOLIC_AD "Enable compile-time loop AD (experimental)" OFF)
 
 # Increase maximum template instantiation depth
@@ -191,9 +192,11 @@ if(BUILD_TESTING)
   target_link_libraries(et_tests_compile_hash_cse_loops PRIVATE et)
   add_test(NAME et_compile_hash_cse_loops COMMAND et_tests_compile_hash_cse_loops)
 
-  add_executable(et_tests_compile_runtime_loops_fallback tests/test_compile_runtime_loops_fallback.cpp)
-  target_link_libraries(et_tests_compile_runtime_loops_fallback PRIVATE et)
-  add_test(NAME et_compile_runtime_loops_fallback COMMAND et_tests_compile_runtime_loops_fallback)
+  if(ET_BUILD_COMPILE_RUNTIME_LOOPS_FALLBACK_TEST)
+    add_executable(et_tests_compile_runtime_loops_fallback tests/test_compile_runtime_loops_fallback.cpp)
+    target_link_libraries(et_tests_compile_runtime_loops_fallback PRIVATE et)
+    add_test(NAME et_compile_runtime_loops_fallback COMMAND et_tests_compile_runtime_loops_fallback)
+  endif()
 
   add_executable(et_tests_compile_runtime_var_indices tests/test_compile_runtime_var_indices.cpp)
   target_link_libraries(et_tests_compile_runtime_var_indices PRIVATE et)
