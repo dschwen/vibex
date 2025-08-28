@@ -336,8 +336,10 @@ struct LoopForOp {
     auto tup = std::make_tuple(rest...);
     auto inits = tuple_take<K>(tup);
     auto nexts = tuple_drop<K>(tup);
-    // Compute init grads as a unit vector in state space
-    auto d_inits = make_unit_inits<IVar>();
+    // Compute init grads via standard diff of initial states
+    auto d_inits = tuple_transform(inits, [&](const auto& x){
+      return diff(x, std::integral_constant<std::size_t, IVar>{});
+    });
     // For each next_k, build d_next_k = replace_sgrad(keep_sgrad(raw)) + strip_sgrad(raw)
     auto d_nexts = tuple_transform(nexts, [&](const auto& next_k){
       auto raw = diff(next_k, std::integral_constant<std::size_t, IVar>{});
@@ -587,6 +589,7 @@ constexpr auto diff(const Apply<Op,Ch...>& node, std::integral_constant<std::siz
 }
 
 #ifdef ET_ENABLE_CONTROL_FLOW
+#ifdef ET_ENABLE_LOOP_SYMBOLIC_AD
 // Specialized diff: Out<J>( LoopFor<K>(N, inits..., nexts...) )
 // Build derivative loop directly using keep_sgrad/strip_sgrad decomposition.
 template <std::size_t J, std::size_t K, class NNode, class... Rest, std::size_t I>
@@ -599,8 +602,10 @@ constexpr auto diff(const Apply<LoopOutOp<J>, Apply<LoopForOp<K>, NNode, Rest...
   auto rest_all = LoopForOp<K>::template tuple_drop<1>(loop.ch);
   auto inits    = LoopForOp<K>::template tuple_take<K>(rest_all);
   auto nexts    = LoopForOp<K>::template tuple_drop<K>(rest_all);
-  // d_inits: unit basis e_I in state space
-  auto d_inits = LoopForOp<K>::template make_unit_inits<I>();
+  // d_inits: differentiate initial states wrt var I
+  auto d_inits = LoopForOp<K>::tuple_transform(inits, [&](const auto& x){
+    return diff(x, std::integral_constant<std::size_t, I>{});
+  });
   // d_nexts[k] = replace_sgrad(keep_sgrad(diff(next[k]))) + strip_sgrad(diff(next[k]))
   auto d_nexts = LoopForOp<K>::tuple_transform(nexts, [&](const auto& x){
     auto raw = diff(x, std::integral_constant<std::size_t, I>{});
@@ -616,7 +621,8 @@ constexpr auto diff(const Apply<LoopOutOp<J>, Apply<LoopForOp<K>, NNode, Rest...
   }, d_inits);
   return Apply<LoopOutOp<J>, decltype(d_loop)>(std::move(d_loop));
 }
-#endif
+#endif // ET_ENABLE_LOOP_SYMBOLIC_AD
+#endif // ET_ENABLE_CONTROL_FLOW
 
 // Op derivative definitions (after diff exists)
 template <std::size_t I, class ANode, class BNode>

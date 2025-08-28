@@ -1,4 +1,5 @@
 #include <cassert>
+#include <iostream>
 #define ET_ENABLE_CONTROL_FLOW 1
 #include "et/expr.hpp"
 #include "et/runtime_ast.hpp"
@@ -33,6 +34,8 @@ int main() {
     double tape_da0 = grad[0];
     double tape_db0 = grad[1];
 
+std::cout << "sym_da0=" << sym_da0 << " tape_da0="<< tape_da0<<'\n';
+std::cout << "sym_db0=" << sym_db0 << " tape_db0="<< tape_db0<<'\n';
     assert(std::abs(sym_da0 - tape_da0) < 1e-12);
     assert(std::abs(sym_db0 - tape_db0) < 1e-12);
   }
