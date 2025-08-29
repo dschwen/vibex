@@ -22,8 +22,7 @@ option(ET_BUILD_TORCH_TESTS "Build Torch-based tests" OFF)
 option(ET_BUILD_CONTROL_FLOW_EXAMPLE "Build control-flow example" ON)
 option(ET_BUILD_CONTROL_FLOW_TESTS "Build control-flow tests" OFF)
 option(ET_ENABLE_CONTROL_FLOW "Enable control-flow operators (If/Select, comparisons)" ON)
-option(ET_BUILD_COMPILE_RUNTIME_LOOPS_FALLBACK_TEST "Build the compile_runtime loops fallback test" OFF)
-option(ET_ENABLE_LOOP_SYMBOLIC_AD "Enable compile-time loop AD (experimental)" OFF)
+## Legacy options removed: compile_runtime loops fallback test and compile-time loop AD
 
 # Increase maximum template instantiation depth
 add_compile_options(-ftemplate-depth=12000)
@@ -32,9 +31,6 @@ add_library(et INTERFACE)
 target_include_directories(et INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(ET_ENABLE_CONTROL_FLOW)
   target_compile_definitions(et INTERFACE ET_ENABLE_CONTROL_FLOW)
-endif()
-if(ET_ENABLE_LOOP_SYMBOLIC_AD)
-  target_compile_definitions(et INTERFACE ET_ENABLE_LOOP_SYMBOLIC_AD)
 endif()
 ## Do not define ET_WITH_TORCH globally; only enable on torch targets
 
@@ -215,11 +211,7 @@ if(BUILD_TESTING)
   target_link_libraries(et_tests_compile_hash_cse_loops PRIVATE et)
   add_test(NAME et_compile_hash_cse_loops COMMAND et_tests_compile_hash_cse_loops)
 
-  if(ET_BUILD_COMPILE_RUNTIME_LOOPS_FALLBACK_TEST)
-    add_executable(et_tests_compile_runtime_loops_fallback tests/test_compile_runtime_loops_fallback.cpp)
-    target_link_libraries(et_tests_compile_runtime_loops_fallback PRIVATE et)
-    add_test(NAME et_compile_runtime_loops_fallback COMMAND et_tests_compile_runtime_loops_fallback)
-  endif()
+  
 
   add_executable(et_tests_compile_runtime_var_indices tests/test_compile_runtime_var_indices.cpp)
   target_link_libraries(et_tests_compile_runtime_var_indices PRIVATE et)
@@ -259,30 +251,7 @@ if(BUILD_TESTING)
   target_link_libraries(et_tests_tape_loop_vjp PRIVATE et)
   add_test(NAME et_tape_loop_vjp COMMAND et_tests_tape_loop_vjp)
 
-  # Symbolic loop gradients vs simple expectations
-  add_executable(et_tests_symbolic_loop_grad tests/test_symbolic_loop_grad.cpp)
-  target_link_libraries(et_tests_symbolic_loop_grad PRIVATE et)
-  if(ET_ENABLE_LOOP_SYMBOLIC_AD)
-    add_test(NAME et_symbolic_loop_grad COMMAND et_tests_symbolic_loop_grad)
-  else()
-    message(STATUS "Skipping loop symbolic AD test: et_symbolic_loop_grad (set ET_ENABLE_LOOP_SYMBOLIC_AD=ON to enable)")
-  endif()
-
-  add_executable(et_tests_symbolic_vs_tape_loop tests/test_symbolic_vs_tape_loop.cpp)
-  target_link_libraries(et_tests_symbolic_vs_tape_loop PRIVATE et)
-  if(ET_ENABLE_LOOP_SYMBOLIC_AD)
-    add_test(NAME et_symbolic_vs_tape_loop COMMAND et_tests_symbolic_vs_tape_loop)
-  else()
-    message(STATUS "Skipping loop symbolic AD test: et_symbolic_vs_tape_loop (set ET_ENABLE_LOOP_SYMBOLIC_AD=ON to enable)")
-  endif()
-
-  add_executable(et_tests_symbolic_vs_tape_fib tests/test_symbolic_vs_tape_fib.cpp)
-  target_link_libraries(et_tests_symbolic_vs_tape_fib PRIVATE et)
-  if(ET_ENABLE_LOOP_SYMBOLIC_AD)
-    add_test(NAME et_symbolic_vs_tape_fib COMMAND et_tests_symbolic_vs_tape_fib)
-  else()
-    message(STATUS "Skipping loop symbolic AD test: et_symbolic_vs_tape_fib (set ET_ENABLE_LOOP_SYMBOLIC_AD=ON to enable)")
-  endif()
+  # Removed legacy symbolic loop AD tests
 
   if(ET_BUILD_CONTROL_FLOW_TESTS)
     add_executable(et_tests_control_flow tests/test_control_flow.cpp)

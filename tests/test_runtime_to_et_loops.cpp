@@ -1,15 +1,15 @@
 #include <cassert>
 #define ET_ENABLE_CONTROL_FLOW 1
-#include "et/expr.hpp"
-#include "et/runtime_ast.hpp"
+#include "et/ast.hpp"
+#include "et/ast_to_runtime.hpp"
 
 using namespace et;
 
 int main() {
   // K=1: running sum
-  auto n = Var<double,0>{};
-  auto sum = Out<0>(LoopFor<1>(n, lit(0.0), State<0>() + Iter()));
-  auto g = compile_to_runtime(sum);
+  auto n = et::var(0);
+  et::Expr sum = loop_out(0, loop_for(1, n, { lit(0.0) }, { state(0) + iter() }));
+  auto g = ast_to_rgraph(sum);
   for (int k = 0; k <= 10; ++k) {
     double a = eval(g, {(double)k});
     double b = eval(g, {(double)k});
@@ -17,9 +17,9 @@ int main() {
   }
 
   // K=2: fib aN
-  auto core = LoopFor<2>(n, lit(0.0), lit(1.0), State<1>(), State<0>() + State<1>());
-  auto aN = Out<0>(core);
-  auto gf = compile_to_runtime(aN);
+  et::Expr core = loop_for(2, n, { lit(0.0), lit(1.0) }, { state(1), state(0) + state(1) });
+  et::Expr aN = loop_out(0, core);
+  auto gf = ast_to_rgraph(aN);
   for (int k = 0; k <= 8; ++k) {
     double a = eval(gf, { (double)k });
     double b = eval(gf, { (double)k });
