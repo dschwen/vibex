@@ -1,7 +1,7 @@
 #include <iostream>
 #include <vector>
 #include "et/ast.hpp"
-#include "et/compile_cse_ast.hpp"
+#include "et/compile_cse.hpp"
 #include "et/torch_jit_backend.hpp"
 
 using namespace et;

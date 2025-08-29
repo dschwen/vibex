@@ -22,6 +22,18 @@ struct TorchJITBackend {
       inputs.push_back(g.addInput());
   }
 
+  // Non-templated conveniences to match generic AST compilers
+  result_type emitVar(std::size_t idx) { return inputs[idx]; }
+
+  result_type emitConst(double v) {
+    auto n = g.create(torch::jit::prim::Constant);
+    n->output()->setType(c10::TensorType::get());
+    auto t = torch::tensor(v);
+    n->t_(c10::Symbol::attr("value"), t);
+    g.insertNode(n);
+    return n->output();
+  }
+
   template <class T>
   result_type emitVar(std::size_t idx) { return inputs[idx]; }
 

@@ -5,6 +5,7 @@
 #include <string>
 #include <sstream>
 #include <functional>
+#include <type_traits>
 
 #include "et/ast.hpp"
 #include "et/normalize.hpp"
@@ -152,9 +153,37 @@ struct AstHashMemo {
   }
 };
 
+// Backend capability detection for optional loop emits
+template <class B, class = void>
+struct has_emitIter : std::false_type {};
+template <class B>
+struct has_emitIter<B, std::void_t<decltype(std::declval<B&>().emitIter())>> : std::true_type {};
+
+template <class B, class = void>
+struct has_emitStateRead : std::false_type {};
+template <class B>
+struct has_emitStateRead<B, std::void_t<decltype(std::declval<B&>().emitStateRead(std::declval<std::size_t>()))>> : std::true_type {};
+
+template <class B, class R, class = void>
+struct has_emitLoopFor : std::false_type {};
+template <class B, class R>
+struct has_emitLoopFor<B, R, std::void_t<decltype(std::declval<B&>().emitLoopFor(std::declval<std::size_t>(), std::declval<const std::vector<R>&>()))>> : std::true_type {};
+
+template <class B, class R, class = void>
+struct has_emitLoopOut : std::false_type {};
+template <class B, class R>
+struct has_emitLoopOut<B, R, std::void_t<decltype(std::declval<B&>().emitLoopOut(std::declval<std::size_t>(), std::declval<R>()))>> : std::true_type {};
+
 template <class Backend>
 auto compile_cse_ast(const Expr& e, Backend& b) -> typename Backend::result_type {
-  Expr en = normalize(e);
+  using R = typename Backend::result_type;
+
+  // Note: Do NOT normalize here. Normalization (especially Add/Mul flattening)
+  // can change tree shape and inflate node counts (e.g., a+a becomes a+a+a when
+  // flattened and rebuilt left-associatively). For CSE we only need structural
+  // identity; hashing already canonicalizes constants/vars and identical
+  // subtrees. Keeping the original shape preserves expected node counts in
+  // tests like (sub + sub).
   AstHashMemo<Backend> memo;
   std::function<typename Backend::result_type(const Expr&)> rec = [&](const Expr& x) -> typename Backend::result_type {
     typename Backend::result_type cached;
@@ -186,17 +215,40 @@ auto compile_cse_ast(const Expr& e, Backend& b) -> typename Backend::result_type
     else if (auto n = std::dynamic_pointer_cast<IfNode>(p))    id = b.template emitApply(IfOp{}, rec(Expr{n->c}), rec(Expr{n->t}), rec(Expr{n->e}));
     else if (auto n = std::dynamic_pointer_cast<SelectNode>(p))id = b.template emitApply(SelectOp{}, rec(Expr{n->m}), rec(Expr{n->t}), rec(Expr{n->e}));
 #endif
-    else id = b.emitConst(0.0);
+    else if (auto n = std::dynamic_pointer_cast<IterNode>(p))  {
+      if constexpr (has_emitIter<Backend>::value) id = b.emitIter();
+      else id = b.emitConst(0.0);
+    }
+    else if (auto n = std::dynamic_pointer_cast<StateReadNode>(p)) {
+      if constexpr (has_emitStateRead<Backend>::value) id = b.emitStateRead(n->index);
+      else id = b.emitConst(0.0);
+    }
+    else if (auto n = std::dynamic_pointer_cast<LoopForNode>(p)) {
+      if constexpr (has_emitLoopFor<Backend, R>::value) {
+        std::vector<R> chids; chids.reserve(n->ch.size());
+        for (auto& c : n->ch) chids.push_back(rec(Expr{c}));
+        id = b.emitLoopFor(n->K, chids);
+      } else {
+        id = b.emitConst(0.0);
+      }
+    } else if (auto n = std::dynamic_pointer_cast<LoopOutNode>(p)) {
+      if constexpr (has_emitLoopOut<Backend, R>::value) {
+        auto loop_id = rec(Expr{n->loop});
+        id = b.emitLoopOut(n->J, loop_id);
+      } else {
+        id = b.emitConst(0.0);
+      }
+    } else id = b.emitConst(0.0);
     memo.insert(x, id);
     return id;
   };
-  return rec(en);
+  return rec(e);
 }
 
 // Convenience overload for TapeBackend
 inline int compile_cse_ast(const Expr& e, TapeBackend& b) {
-  // Tape-specific version supporting loops via non-templated emits
-  Expr en = normalize(e);
+  // Tape-specific version supporting loops via non-templated emits.
+  // Avoid normalize() to preserve original binary tree shape for tests.
   AstHashMemo<TapeBackend> memo;
   std::function<int(const Expr&)> rec = [&](const Expr& x) -> int {
     int cached; if (memo.find(x, cached)) return cached;
@@ -239,7 +291,7 @@ inline int compile_cse_ast(const Expr& e, TapeBackend& b) {
     memo.insert(x, id);
     return id;
   };
-  return rec(en);
+  return rec(e);
 }
 
 } // namespace et

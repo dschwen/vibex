@@ -5,6 +5,54 @@
 
 namespace et {
 
+// Generic AST→Backend lowering (no CSE), for any Backend that supports emitVar,
+// emitConst, and emitApply for the used ops. This enables TorchJITBackend.
+template <class Backend>
+inline auto compile_runtime(const Expr& e, Backend& b) -> typename Backend::result_type {
+  std::function<typename Backend::result_type(const std::shared_ptr<Node>&)> rec;
+  rec = [&](const std::shared_ptr<Node>& p) -> typename Backend::result_type {
+    if (auto q = std::dynamic_pointer_cast<ConstNode>(p)) return b.emitConst(q->value);
+    if (auto q = std::dynamic_pointer_cast<VarNode>(p))   return b.emitVar(q->index);
+    if (auto q = std::dynamic_pointer_cast<NegNode>(p))   return b.template emitApply(NegOp{}, rec(q->a));
+    if (auto q = std::dynamic_pointer_cast<SinNode>(p))   return b.template emitApply(SinOp{}, rec(q->a));
+    if (auto q = std::dynamic_pointer_cast<CosNode>(p))   return b.template emitApply(CosOp{}, rec(q->a));
+    if (auto q = std::dynamic_pointer_cast<ExpNode>(p))   return b.template emitApply(ExpOp{}, rec(q->a));
+    if (auto q = std::dynamic_pointer_cast<LogNode>(p))   return b.template emitApply(LogOp{}, rec(q->a));
+    if (auto q = std::dynamic_pointer_cast<SqrtNode>(p))  return b.template emitApply(SqrtOp{}, rec(q->a));
+    if (auto q = std::dynamic_pointer_cast<TanhNode>(p))  return b.template emitApply(TanhOp{}, rec(q->a));
+    if (auto q = std::dynamic_pointer_cast<AddNode>(p))   return b.template emitApply(AddOp{}, rec(q->a), rec(q->b));
+    if (auto q = std::dynamic_pointer_cast<SubNode>(p))   return b.template emitApply(SubOp{}, rec(q->a), rec(q->b));
+    if (auto q = std::dynamic_pointer_cast<MulNode>(p))   return b.template emitApply(MulOp{}, rec(q->a), rec(q->b));
+    if (auto q = std::dynamic_pointer_cast<DivNode>(p))   return b.template emitApply(DivOp{}, rec(q->a), rec(q->b));
+    if (auto q = std::dynamic_pointer_cast<PowNode>(p))   return b.template emitApply(PowOp{}, rec(q->a), rec(q->b));
+#ifdef ET_ENABLE_CONTROL_FLOW
+    if (auto q = std::dynamic_pointer_cast<LtNode>(p))    return b.template emitApply(LtOp{},  rec(q->a), rec(q->b));
+    if (auto q = std::dynamic_pointer_cast<LeNode>(p))    return b.template emitApply(LeOp{},  rec(q->a), rec(q->b));
+    if (auto q = std::dynamic_pointer_cast<GtNode>(p))    return b.template emitApply(GtOp{},  rec(q->a), rec(q->b));
+    if (auto q = std::dynamic_pointer_cast<GeNode>(p))    return b.template emitApply(GeOp{},  rec(q->a), rec(q->b));
+    if (auto q = std::dynamic_pointer_cast<EqNode>(p))    return b.template emitApply(EqOp{},  rec(q->a), rec(q->b));
+    if (auto q = std::dynamic_pointer_cast<NeNode>(p))    return b.template emitApply(NeOp{},  rec(q->a), rec(q->b));
+    if (auto q = std::dynamic_pointer_cast<NotNode>(p))   return b.template emitApply(NotOp{}, rec(q->a));
+    if (auto q = std::dynamic_pointer_cast<IfNode>(p))    return b.template emitApply(IfOp{}, rec(q->c), rec(q->t), rec(q->e));
+    if (auto q = std::dynamic_pointer_cast<SelectNode>(p))return b.template emitApply(SelectOp{}, rec(q->m), rec(q->t), rec(q->e));
+#endif
+    // Loops (dynamic lowering supported by backends that implement these)
+    if (auto q = std::dynamic_pointer_cast<IterNode>(p)) return b.emitIter();
+    if (auto q = std::dynamic_pointer_cast<StateReadNode>(p)) return b.emitStateRead(q->index);
+    if (auto q = std::dynamic_pointer_cast<LoopForNode>(p)) {
+      std::vector<typename Backend::result_type> chids; chids.reserve(q->ch.size());
+      for (auto& c : q->ch) chids.push_back(rec(c));
+      return b.emitLoopFor(q->K, chids);
+    }
+    if (auto q = std::dynamic_pointer_cast<LoopOutNode>(p)) {
+      auto loop_id = rec(q->loop);
+      return b.emitLoopOut(q->J, loop_id);
+    }
+    return b.emitConst(0.0);
+  };
+  return rec(e.n);
+}
+
 // Alias: keep the same implementation as before
 inline int compile_runtime(const Expr& e, TapeBackend& b) {
   std::function<int(const std::shared_ptr<Node>&)> rec;
@@ -49,4 +97,3 @@ inline int compile_runtime(const Expr& e, TapeBackend& b) {
 }
 
 } // namespace et
-
