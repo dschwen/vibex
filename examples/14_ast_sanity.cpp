@@ -4,7 +4,7 @@
 #include <vector>
 
 #include "et/ast.hpp"
-#include "et/compile_ast.hpp"
+#include "et/compile.hpp"
 #include "et/tape_backend.hpp"
 
 using namespace et;
@@ -52,4 +52,3 @@ int main() {
   std::cout << "ok ast_vs_tape forward+grad sanity\n";
   return 0;
 }
-

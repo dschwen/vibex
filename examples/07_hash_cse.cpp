@@ -1,7 +1,7 @@
 #include <iostream>
 #include <vector>
 #include "et/ast.hpp"
-#include "et/compile_hash_cse_ast.hpp"
+#include "et/compile_hash_cse.hpp"
 #include "et/tape_backend.hpp"
 
 int main() {
@@ -12,7 +12,7 @@ int main() {
   Expr f = g + log(z) + g + sqrt(z*z) + g;
 
   TapeBackend TB(3);
-  int out_id = compile_hash_cse_ast(f, TB);
+  int out_id = compile_hash_cse(f, TB);
   TB.tape.output_id = out_id;
 
   std::vector<double> in = {1.1, 0.7, 2.5};

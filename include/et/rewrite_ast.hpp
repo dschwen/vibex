@@ -4,7 +4,7 @@
 #include <algorithm>
 
 #include "et/ast.hpp"
-#include "et/normalize_ast.hpp"
+#include "et/normalize.hpp"
 
 namespace et {
 

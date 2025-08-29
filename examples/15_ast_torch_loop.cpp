@@ -18,11 +18,10 @@ int main() {
 
   // Compile to Torch JIT graph using AST CSE
   TorchJITBackend JB(1);
-  auto out = compile_cse_ast(aN, JB);
+  auto out = compile_cse(aN, JB);
   JB.g.registerOutput(out);
   std::cout << "Torch graph (prim::Loop) for a_N fib:\n";
   std::cout << JB.g.toString() << "\n";
   return 0;
 #endif
 }
-

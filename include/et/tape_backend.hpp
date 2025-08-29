@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <algorithm>
 #include <type_traits>
+#include "et/expr.hpp"
 
 namespace et {
 

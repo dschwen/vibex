@@ -40,14 +40,11 @@ Why both `IfOp` and `SelectOp`?
 
 ## 2. AST Representation
 
-Runtime AST (`include/et/runtime_ast.hpp`)
-- Extend `enum class RKind` with: `If`, `Loop`, `Select`.
-- `RNode` payloads:
-  - `If`: fields `{cond: id, then_: id, else_: id}`.
-  - `Select`: `{mask: id, on_true: id, on_false: id}`.
-  - `Loop`: `{max_iter: id /*const or var*/, init_state: id, cond_subgraph_root: id, body_subgraph_root: id}`.
-    - The `cond_subgraph_root` and `body_subgraph_root` are roots of subgraphs that may reference a reserved loop‑state variable node `RKind::LoopState` (new node kind) to read the current state.
-    - We avoid general lambdas by introducing a single `LoopState` read node (no write; the body result becomes the next state). This fits our existing index‑based var emission model and keeps loops first‑order.
+Runtime AST (`include/et/ast.hpp`)
+- Nodes for control flow and loops exist directly in the AST:
+  - `IfNode(cond, then, else_)`, `SelectNode(mask, a, b)`
+  - `IterNode()`, `StateReadNode(i)`, `LoopForNode(K, children)`, `LoopOutNode(J, loop)`
+- LoopFor uses children `[N, init0..initK-1, next0..nextK-1]` and `LoopOut(J, loop)` extracts the J‑th carried value after N iterations.
 
 ET surface (`include/et/expr.hpp`)
 - Add tags `IfOp`, `LoopOp`, `SelectOp`, and `LoopState`.
@@ -59,9 +56,8 @@ ET surface (`include/et/expr.hpp`)
        auto body = Add(LoopState<double>(), Const(1.0));
        auto out = ForN(Const(10), s0, body); // s_{k+1} = s_k + 1`
 
-Compile to runtime
-- Extend `compile_to_runtime` to lower the new ET nodes to the `RGraph` forms above.
-- For `While`, lower to `Loop` with both `cond` and `body` subgraphs.
+Compilation
+- Use `compile_runtime(const Expr&, Backend&)` to lower AST to a backend (Tape backend for execution and VJP; Torch JIT when enabled).
 
 Structural hashing/CSE
 - Include kind and child ids for `If`, `Select` as usual.
@@ -128,10 +124,9 @@ Assumptions
 
 ## 5. Backends
 
-5.1 Runtime evaluator (`include/et/runtime_ast.hpp`)
-- Add execution for `If`: evaluate `cond` → bool; branch accordingly.
-- Add `Select`: elementwise dispatch with broadcasting when types support it.
-- Add `Loop`: implement counted loops; for `While`, re‑evaluate `cond(state)` each iteration. The loop state read `State<I>` pulls the current carried state from the evaluator’s loop frame; `Iter()` exposes the 0‑based iteration counter.
+5.1 AST eval and Tape
+- AST `eval(e, inputs)` handles arithmetic, comparisons, `If`, and `Select` directly.
+- For loops (`Iter/StateRead/LoopFor/LoopOut`), compile to `TapeBackend` and run `forward(inputs)`; reverse VJP is supported.
 
 5.2 CSE/Hash CSE compilers (AST) (`include/et/compile_cse_ast.hpp`, `include/et/compile_hash_cse_ast.hpp`)
 - Treat `If`/`Select`/comparisons/`LoopFor`/`LoopOut` as first-class AST kinds. CSE keys include op kind and normalized children.
@@ -192,8 +187,8 @@ Gating
 
 Headers to touch (AST path)
 - `include/et/ast.hpp`: add AST nodes (`If`, `Select`, `LoopFor`, `LoopOut`, `Iter`, `StateRead`) and helpers (`loop_for`, `loop_out`, `iter`, `state`).
-- `include/et/compile_ast.hpp`: lower AST to Tape; add control‑flow and loop emits.
-- `include/et/normalize_ast.hpp`: constant folding and small structural unrolls.
+- `include/et/compile.hpp`: lower AST to Tape; add control‑flow and loop emits.
+- `include/et/normalize.hpp`: constant folding and small structural unrolls.
 - `include/et/compile_cse_ast.hpp`, `include/et/compile_hash_cse_ast.hpp`: include new kinds in hashing and emission.
 - `include/et/tape_backend.hpp`: tape kinds (Iter/StateRead/LoopFor/LoopOut), forward loop evaluation, and VJP through loops.
 - `include/et/torch_jit_backend.hpp`: emit prim::If/Loop/aten::where; dynamic loop emitters for AST compilers.
@@ -201,15 +196,11 @@ Headers to touch (AST path)
 
 Key data structure additions (pseudocode)
 ```cpp
-// runtime_ast.hpp
-enum class RKind { /*...,*/ If, Select, Loop, LoopState };
-struct RIf { int cond, then_, else_; };
-struct RSelect { int mask, on_true, on_false; };
-struct RLoop { int max_iter, init_state, cond_root, body_root; };
-struct RNode {
-  RKind kind;
-  // union-like payload
-};
+// ast.hpp (conceptual)
+struct IfNode { Expr c, t, e; };
+struct SelectNode { Expr m, t, e; };
+struct LoopForNode { std::size_t K; std::vector<Expr> ch; /* [N, inits..., nexts...] */ };
+struct LoopOutNode { std::size_t J; Expr loop; };
 
 // tape_backend.hpp (forward emission outline)
 case If: {

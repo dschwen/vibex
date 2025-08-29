@@ -21,8 +21,8 @@ The goals are to:
 ## Current Status (Aug 2025)
 
 - Runtime AST is implemented (`include/et/ast.hpp`) with `Expr` and nodes for arithmetic, math, comparisons, control flow (`If`/`Select`), and loops (`Iter`, `StateRead`, `LoopFor`, `LoopOut`).
-- Direct AST→Tape lowering exists (`include/et/compile_ast.hpp`), including control flow and loops. Tape reverse‑mode through loops is implemented.
-- Normalization over AST (`include/et/normalize_ast.hpp`).
+- Direct AST→Tape lowering exists (`include/et/compile.hpp`), including control flow and loops. Tape reverse‑mode through loops is implemented.
+- Normalization over AST (`include/et/normalize.hpp`).
 - AST rewrite engine (`include/et/rewrite_ast.hpp`) with core algebraic rules and additional ones (exp product combine; integer‑exponent power merging; common‑denominator combining).
 - AST CSE:
   - Structural‑hash CSE (`include/et/compile_cse_ast.hpp`) with collision‑checked keys; supports control flow and loops.

@@ -3,7 +3,7 @@
 #include <string>
 #include <sstream>
 #include "et/ast.hpp"
-#include "et/normalize_ast.hpp"
+#include "et/normalize.hpp"
 #include "et/expr.hpp"
 #include "et/tape_backend.hpp"
 
@@ -19,6 +19,7 @@ inline std::string ast_key(const Expr& e) {
   if (auto v = std::dynamic_pointer_cast<VarNode>(p))   { os<<"V("<<v->index<<")"; return os.str(); }
   if (std::dynamic_pointer_cast<IterNode>(p))           { os<<"Iter()"; return os.str(); }
   if (auto s = std::dynamic_pointer_cast<StateReadNode>(p)) { os<<"State("<<s->index<<")"; return os.str(); }
+  if (auto n = std::dynamic_pointer_cast<NotNode>(p))   { key1("Not", Expr{n->a}); return os.str(); }
   if (std::dynamic_pointer_cast<NegNode>(p))  { key1("Neg", Expr{std::dynamic_pointer_cast<NegNode>(p)->a}); return os.str(); }
   if (std::dynamic_pointer_cast<SinNode>(p))  { key1("Sin", Expr{std::dynamic_pointer_cast<SinNode>(p)->a}); return os.str(); }
   if (std::dynamic_pointer_cast<CosNode>(p))  { key1("Cos", Expr{std::dynamic_pointer_cast<CosNode>(p)->a}); return os.str(); }
@@ -81,6 +82,7 @@ inline int compile_hash_cse_ast(const Expr& e, TapeBackend& b) {
     else if (auto n = std::dynamic_pointer_cast<NeNode>(p))    id = b.emitApply(NeOp{},  rec(Expr{n->a}), rec(Expr{n->b}));
     else if (auto n = std::dynamic_pointer_cast<IfNode>(p))    id = b.emitApply(IfOp{}, rec(Expr{n->c}), rec(Expr{n->t}), rec(Expr{n->e}));
     else if (auto n = std::dynamic_pointer_cast<SelectNode>(p))id = b.emitApply(SelectOp{}, rec(Expr{n->m}), rec(Expr{n->t}), rec(Expr{n->e}));
+    else if (auto n = std::dynamic_pointer_cast<NotNode>(p))   id = b.emitApply(NotOp{}, rec(Expr{n->a}));
     else if (std::dynamic_pointer_cast<IterNode>(p))           id = b.emitIter();
     else if (auto n = std::dynamic_pointer_cast<StateReadNode>(p)) id = b.emitStateRead(n->index);
     else if (auto n = std::dynamic_pointer_cast<LoopForNode>(p)) {

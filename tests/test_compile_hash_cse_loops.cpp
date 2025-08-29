@@ -2,7 +2,7 @@
 #include <cmath>
 #include <vector>
 #include "et/ast.hpp"
-#include "et/compile_hash_cse_ast.hpp"
+#include "et/compile_hash_cse.hpp"
 #include "et/tape_backend.hpp"
 
 using namespace et;
@@ -21,7 +21,7 @@ int main() {
   Expr aN = loop_out(0, core);
 
   TapeBackend tb(1);
-  auto root = compile_hash_cse_ast(aN, tb);
+  auto root = compile_hash_cse(aN, tb);
   tb.tape.output_id = root;
 
   for (int k = 0; k <= 10; ++k) {

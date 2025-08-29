@@ -2,7 +2,7 @@
 
 #define ET_ENABLE_CONTROL_FLOW 1
 #include "et/ast.hpp"
-#include "et/compile_ast.hpp"
+#include "et/compile.hpp"
 #include "et/torch_jit_backend.hpp"
 
 using namespace et;

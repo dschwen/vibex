@@ -3,8 +3,8 @@
 #include <cmath>
 
 #include "et/ast.hpp"
-#include "et/compile_ast.hpp"
-#include "et/compile_cse_ast.hpp"
+#include "et/compile.hpp"
+#include "et/compile_cse.hpp"
 #include "et/tape_backend.hpp"
 
 using namespace et;
@@ -20,7 +20,7 @@ int main() {
   auto nodes_naive = tb_naive.tape.nodes.size();
 
   TapeBackend tb_cse(2);
-  int root_cse = compile_cse_ast(e, tb_cse);
+  int root_cse = compile_cse(e, tb_cse);
   tb_cse.tape.output_id = root_cse;
   auto nodes_cse = tb_cse.tape.nodes.size();
 
@@ -31,4 +31,3 @@ int main() {
   assert(std::fabs(v1 - v2) < 1e-12);
   return 0;
 }
-

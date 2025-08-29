@@ -3,8 +3,8 @@
 #include <cmath>
 
 #include "et/ast.hpp"
-#include "et/compile_ast.hpp"
-#include "et/compile_hash_cse_ast.hpp"
+#include "et/compile.hpp"
+#include "et/compile_hash_cse.hpp"
 #include "et/tape_backend.hpp"
 
 using namespace et;
@@ -22,7 +22,7 @@ int main() {
 
   // CSE compile
   TapeBackend tb_cse(2);
-  int root_cse = compile_hash_cse_ast(e, tb_cse);
+  int root_cse = compile_hash_cse(e, tb_cse);
   tb_cse.tape.output_id = root_cse;
   auto nodes_cse = tb_cse.tape.nodes.size();
 

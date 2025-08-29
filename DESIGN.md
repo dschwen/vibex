@@ -19,23 +19,20 @@ Status: Header-only, C++17, runtime AST for expression building; reverse-mode Ta
 
 ```
 include/et/ast.hpp                  # Runtime AST (Expr + Node hierarchy)
-include/et/normalize_ast.hpp        # AST normalization (AC flatten/sort, constant folding)
+include/et/normalize.hpp            # AST normalization (AC flatten/sort, constant folding)
 include/et/rewrite_ast.hpp          # AST rewrite (fixed-point algebraic rules)
-include/et/compile_ast.hpp          # AST→backend compilation (Tape/Torch)
-include/et/compile_cse_ast.hpp      # AST CSE (structural hash)
-include/et/compile_hash_cse_ast.hpp # AST CSE (string key)
+include/et/compile.hpp              # AST→backend compilation (Tape/Torch)
+include/et/compile_cse.hpp          # AST CSE (structural hash)
+include/et/compile_hash_cse.hpp     # AST CSE (string key)
 include/et/tape_backend.hpp         # Reverse-mode Tape backend (forward eval + VJP)
 include/et/torch_jit_backend.hpp    # TorchScript backend (optional; -DET_WITH_TORCH)
-
-# Bridging (legacy RGraph for pattern matcher utilities)
-include/et/ast_to_runtime.hpp       # AST→RGraph bridge
-include/et/runtime_ast.hpp          # RGraph nodes (used by pattern matcher and utilities)
-include/et/normalize.hpp            # RGraph normalize (for pattern matcher)
-include/et/pattern.hpp              # RGraph pattern DSL
-include/et/match.hpp                # RGraph structural matcher
+include/et/print.hpp                # AST structural pretty-printer
+include/et/denormalize.hpp          # AST denormalization helpers (e.g., Sub reconstruction)
+include/et/pattern.hpp              # AST pattern DSL (for tests/utilities)
+include/et/match.hpp                # AST structural matcher (AC-aware with spreads)
 ```
 
-Deprecation note: RGraph exists only for pattern matching and certain utilities during migration. New work should target the AST. RGraph and the bridge will be removed once the pattern/matcher layer is ported to AST.
+Note: Legacy RGraph has been removed. Pattern matching and utilities are provided on AST directly.
 
 ---
 
@@ -81,8 +78,8 @@ auto grad  = tb.tape.backward(inputs);
 
 ## 6. CSE Compilers (AST)
 
-- `compile_cse_ast(e, backend)`: structural-hash CSE with collision-checked keys; supports control-flow and loops for Tape/Torch.
-- `compile_hash_cse_ast(e, TapeBackend)`: string-key CSE; simple and robust.
+- `compile_cse(e, backend)`: structural-hash CSE with collision-checked keys; supports control-flow and loops for Tape/Torch.
+- `compile_hash_cse(e, TapeBackend)`: string-key CSE; simple and robust.
 
 Both emit via `emitApply(OpTag{}, …)` for unary/binary/control-flow operations. Loops use dedicated emitters on backends that support them.
 
@@ -110,7 +107,7 @@ Maps arithmetic to `aten::` symbols, `If` to `prim::If`, `Select` to `aten::wher
 ## 9. Adding a New Operation (Checklist)
 
 1. Add a node/helper in `ast.hpp` (e.g., `struct ExpNode` + `Expr exp(const Expr&)`).
-2. Add constant folding to `normalize_ast.hpp` when safe.
+2. Add constant folding to `normalize.hpp` when safe.
 3. Map to Tape (`TapeBackend`) and Torch (`TorchJITBackend`) in their emitters.
 4. Optionally add AST rewrite identities.
 
@@ -118,15 +115,6 @@ Minimal viable support: (1)+(3). (2)+(4) improve quality (folding/simplification
 
 ---
 
-## 10. Deprecated (RGraph) and Migration Plan
+## 10. Notes on Migration Completion
 
-The legacy RGraph (`runtime_ast.hpp` + `normalize.hpp` + `pattern.hpp` + `match.hpp`) remains only for pattern-matching utilities. An `ast_to_rgraph` bridge exists to run those matchers on AST-built expressions.
-
-Planned removal:
-- Migrate pattern/matcher capabilities to an AST-native layer.
-- Remove the RGraph bridge and RGraph headers after parity is reached.
-
-Guidance:
-- New features, rewrites, and backends should target AST (`ast.hpp`) exclusively.
-- Use `ast_to_rgraph()` only in tests/utilities that still rely on the RGraph matcher.
-
+RGraph and its bridge were fully removed. All examples/tests use AST and its backends. Pattern matching is available via `ast_pattern.hpp` + `ast_match.hpp`.

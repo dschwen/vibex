@@ -4,82 +4,30 @@ This is a quick, practical tour of the “user-facing” surface of Vibex: build
 
 ---
 
-## 1) Core Concepts & Types
+## 1) Core Concepts (AST)
 
-### Variables
-Variables are **typed placeholders** addressed by index in the call operator.
+### Variables and constants
+Build expressions with the runtime AST API in `et/ast.hpp`:
 
 ```cpp
 using namespace et;
-
-auto x = Var<double, 0>{};
-auto y = Var<double, 1>{};
-auto z = Var<double, 2>{};
-
-// convenience: pack variables
-auto xyz = Vars<double, 3>(); // std::tuple<Var<double,0>, Var<double,1>, Var<double,2>>
-```
-
-### Constants
-Use `lit(value)` to inject numeric constants:
-
-```cpp
-auto c = lit(2.5); // Const<double>
-```
-
-### Building expressions
-Use constrained operator overloads and function shorthands (only kick in when at least one operand is an ET node, so they don’t pollute normal code):
-
-```cpp
-auto f = sin(x) * y + z * z + c / (x + y);
+auto x = var(0), y = var(1), z = var(2);
+Expr c = lit(2.5);
+Expr f = sin(x) * y + z * z + c / (x + y);
 ```
 
 ### Evaluation
-Call the expression like a function with **heterogeneous** arguments (C++ converts to the declared `value_type`s of the variables):
+Pass inputs as `std::vector<double>` indexed by `var(i)`:
 
 ```cpp
-double v = f(2.4, 6, 1.1); // x=2.4 (double), y=6 (int), z=1.1 (double)
-```
-
-There’s also a helper:
-
-```cpp
-auto v2 = evaluate(f, 2.4, 6, 1.1);
+double v = eval(f, {2.4, 6.0, 1.1});
 ```
 
 ---
 
-## 2) Automatic Differentiation (symbolic)
+## 2) Automatic Differentiation
 
-### Single partial
-You can differentiate by index or, more pleasantly, by variable:
-
-```cpp
-// by variable (index deduced)
-auto dfx = diff(f, x);
-auto dfy = diff(f, y);
-auto dfz = diff(f, z);
-
-// by index
-auto dfx2 = diff(f, std::integral_constant<std::size_t, 0>{});
-```
-
-> Note: the “diff recursion” bug was fixed by removing a recursive trailing return type on the sugar overload. You shouldn’t need to tweak template depth flags.
-
-### Gradient
-Works with either separate vars or a tuple:
-
-```cpp
-auto g1 = grad(f, x, y, z);  // tuple of 3 ET expressions
-auto g2 = grad(f, xyz);      // same
-```
-
-You can evaluate gradients like expressions:
-
-```cpp
-auto [gx, gy, gz] = g1;
-auto gx_val = gx(2.4, 6, 1.1);
-```
+Prefer reverse‑mode via the Tape backend at runtime. Symbolic `diff()` remains available via `et/expr.hpp` for compile‑time expressions when needed, but the default path is AST→Tape.
 
 ---
 
@@ -93,7 +41,7 @@ Example:
 
 ```cpp
 #include "et/ast.hpp"
-#include "et/normalize_ast.hpp"
+#include "et/normalize.hpp"
 #include "et/rewrite_ast.hpp"
 
 auto x = et::var(0), y = et::var(1);
@@ -103,20 +51,19 @@ et::Expr fs = et::rewrite_fixed_point(f); // folds +0 and normalizes
 
 ---
 
-## 4) Backends & Visitors
+## 4) Backends & Compilation (AST)
 
-Vibex is backend-agnostic. A backend provides a few methods and Vibex calls them via `compile(…, backend)` or the CSE variants. A minimal backend API looks like:
+Vibex is backend-agnostic. A backend provides a few methods and Vibex calls them via `compile_runtime(…, backend)` or the AST CSE variants. A minimal backend API looks like:
 
 ```cpp
 struct MyBackend {
   using result_type = /* handle/id/type you use to refer to compiled nodes */;
 
   // Emit a variable by runtime index (maps to input slot `idx`)
-  template <class T>
   result_type emitVar(std::size_t idx);
 
-  template <class T>
-  result_type emitConst(const Const<T>&);
+  // Emit a constant literal
+  result_type emitConst(double);
 
   template <class Op, class... Hs> // Hs: result_type produced for children
   result_type emitApply(Op, Hs...);
@@ -127,16 +74,16 @@ struct MyBackend {
 
 ```cpp
 MyBackend b;
-auto h = compile(f, b); // returns MyBackend::result_type
+auto h = compile_runtime(f, b); // returns MyBackend::result_type
 ```
 
-### CSE variants
-- **Structural CSE**: memoizes by structural string key
-- **Hashed CSE**: memoizes by a structural hash with lazy key materialization for collisions
+### CSE variants (AST)
+- **Hashed structural CSE**: `compile_cse(f, backend)`
+- **String-key CSE** (Tape backend): `compile_hash_cse(f, tape_backend)`
 
 ```cpp
 auto h1 = compile_cse(f, b);
-auto h2 = compile_hash_cse(f, b);
+auto h2 = compile_hash_cse(f, tape_backend);
 ```
 
 ---
@@ -150,8 +97,9 @@ The provided `TapeBackend` builds a compact instruction tape you can execute. It
 ### Building a tape
 
 ```cpp
-TapeBackend tape;
-auto root = compile_hash_cse(f, tape);   // or compile(), compile_cse()
+TapeBackend tb(arity);
+int root = compile_runtime(f, tb);   // or compile_cse(), compile_hash_cse()
+tb.tape.output_id = root;
 ```
 
 Under the hood:
@@ -163,7 +111,7 @@ Under the hood:
 
 ```cpp
 std::vector<double> inputs = {2.4, 6.0, 1.1}; // x,y,z
-double out = tape.forward(root, inputs);
+double out = tb.tape.forward(inputs);
 ```
 
 ### Reverse-mode (Backward)
@@ -171,7 +119,7 @@ double out = tape.forward(root, inputs);
 `backward(inputs)` back-propagates to produce partials wrt inputs:
 
 ```cpp
-std::vector<double> grad = tape.backward(inputs);
+std::vector<double> grad = tb.tape.backward(inputs);
 // grad[0] = d f / d x  at inputs
 // grad[1] = d f / d y
 // grad[2] = d f / d z
@@ -217,11 +165,9 @@ struct TorchBackend {
 Usage:
 
 ```cpp
-TorchBackend tb;
-auto out = compile_hash_cse(f, tb);
-
-// Wrap graph as a scripted function/module as you prefer,
-// then pass Tensors at runtime.
+TorchJITBackend tb(arity);
+auto out = compile_runtime(f, tb);
+// Optionally traverse tb.g to inspect prims and aten ops
 ```
 
 **Type notes:**  
@@ -257,37 +203,36 @@ Torch lowering (when also compiled with `-DET_WITH_TORCH=ON`)
 
 See also: `CONTROL_FLOW.md` for a deeper design write-up and tape/Torch details.
 
-### Counted Loops (ForN)
+### Counted Loops (AST)
 
 Looping is available behind `ET_ENABLE_CONTROL_FLOW` and modeled as a structured, loop-carried form:
 
 - Placeholders inside the body:
-  - `Iter()`: current iteration index (0-based)
-  - `State<I>()`: I-th carried value at the current iteration
+  - `iter()`: current iteration index (0-based)
+  - `state(i)`: i-th carried value at the current iteration
 - Builders:
-  - `LoopForN(n, init, next)`: single carried state; returns the final state after n iterations
-  - `LoopFor<K>(n, init0, ..., initK-1, next0, ..., nextK-1)`: K carried states; returns an opaque loop handle
-  - `Out<J>(loop)`: select the J-th final carried value from a loop
+  - `loop_for(K, n, {inits...}, {nexts...})`: K carried states; returns a loop node
+  - `loop_out(J, loop)`: select the J-th final carried value from a loop
 
 Example: running sum and Fibonacci
 
 ```cpp
 using namespace et;
-auto n = Var<double,0>{};
+auto n = var(0);
 
 // Running sum: s_{t+1} = s_t + t
-auto sum = LoopForN(n, /*init*/lit(0.0), /*next*/ State<0>() + Iter());
-double s5 = evaluate(sum, 5.0); // 10
+Expr core = loop_for(1, n, { lit(0.0) }, { state(0) + iter() });
+Expr sum  = loop_out(0, core); // value after n iterations
 
 // Fibonacci via two carried states: (a,b) <- (b, a+b)
-auto core = LoopFor<2>(n, /*inits*/ lit(0.0), lit(1.0), /*nexts*/ State<1>(), State<0>() + State<1>());
-auto aN = Out<0>(core); // F(n)
-auto bN = Out<1>(core); // F(n+1)
+Expr fib = loop_for(2, n, { lit(0.0), lit(1.0) }, { state(1), state(0) + state(1) });
+Expr aN  = loop_out(0, fib); // F(n)
+Expr bN  = loop_out(1, fib); // F(n+1)
 ```
 
 Semantics and AD
-- The loop runs exactly `n` iterations (non-negative; fractional parts truncated in runtime eval). No gradients flow through `n`.
-- Symbolic `diff` for loops is conservative initially; gradients flow through body ops and carried states. Tape VJP support for loops is planned to propagate adjoints across iterations.
+- The loop runs exactly `n` iterations (non-negative; fractional parts truncated during execution). No gradients flow through `n`.
+- Tape VJP supports loops by reverse iterating the body VJP and propagating into init state and inputs.
 
 Torch lowering (when enabled)
 - `LoopFor` lowers to `prim::Loop` with carried dependencies; `Out<J>` lowers to indexing into the loop’s carried outputs.
@@ -299,7 +244,7 @@ Lower an AST directly to a TorchScript graph using `TorchJITBackend`:
 ```cpp
 #ifdef ET_WITH_TORCH
 #  include "et/ast.hpp"
-#  include "et/compile_ast.hpp"
+#  include "et/compile.hpp"
 #  include "et/torch_jit_backend.hpp"
   auto x = et::var(0);
   et::Expr expr = et::Select(x > et::lit(0.0), x + et::lit(1.0), x - et::lit(1.0));
@@ -378,7 +323,7 @@ The AST rewrite operates over a normalized AST (AC flattening/sorting for `Add`/
 
 ```cpp
 #include "et/ast.hpp"
-#include "et/compile_hash_cse_ast.hpp"
+#include "et/compile_hash_cse.hpp"
 #include "et/tape_backend.hpp"
 
 using namespace et;
@@ -388,7 +333,7 @@ int main() {
   et::Expr f = et::sin(x) * y + z * z;
 
   et::TapeBackend tb(3);
-  int root = et::compile_hash_cse_ast(f, tb);
+  int root = et::compile_hash_cse(f, tb);
   tb.tape.output_id = root;
 
   std::vector<double> in = {2.4, 6.0, 1.1};

@@ -20,14 +20,18 @@ struct Pattern {
   }
 };
 
+// Placeholder helpers
 inline Pattern P(int id) { return Pattern::placeholder(id); }
 inline Pattern S(int id) { Pattern p = Pattern::placeholder(id); p.is_spread = true; return p; }
+
+// Node builders
 inline Pattern add(const Pattern& a, const Pattern& b) { return Pattern::node("Add", {a,b}); }
 inline Pattern mul(const Pattern& a, const Pattern& b) { return Pattern::node("Mul", {a,b}); }
 inline Pattern neg(const Pattern& a) { return Pattern::node("Neg", {a}); }
 inline Pattern sin(const Pattern& a) { return Pattern::node("Sin", {a}); }
 inline Pattern cos(const Pattern& a) { return Pattern::node("Cos", {a}); }
 
+// Specificity heuristic
 inline int specificity(const Pattern& p) {
   if (p.kind == Pattern::Kind::Placeholder) return 0;
   int s = 1; for (auto& c : p.ch) s += specificity(c); return s;
@@ -36,5 +40,6 @@ inline int specificity(const Pattern& p) {
 // Operator sugar
 inline Pattern operator+(const Pattern& a, const Pattern& b) { return add(a,b); }
 inline Pattern operator*(const Pattern& a, const Pattern& b) { return mul(a,b); }
+
 
 } } // namespace et::astpat

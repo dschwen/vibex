@@ -2,8 +2,8 @@
 #include <vector>
 
 #include "et/ast.hpp"
-#include "et/compile_ast.hpp"
-#include "et/compile_cse_ast.hpp"
+#include "et/compile.hpp"
+#include "et/compile_cse.hpp"
 #include "et/tape_backend.hpp"
 
 using namespace et;
@@ -17,7 +17,7 @@ static int compile_no_cse_nodes(const Expr& e) {
 
 static int compile_cse_nodes(const Expr& e) {
   TapeBackend tb(4);
-  auto root = compile_cse_ast(e, tb);
+  auto root = compile_cse(e, tb);
   tb.tape.output_id = root;
   return (int)tb.tape.nodes.size();
 }

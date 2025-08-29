@@ -2,7 +2,7 @@
 #include <vector>
 
 #include "et/ast.hpp"
-#include "et/normalize_ast.hpp"
+#include "et/normalize.hpp"
 
 using namespace et;
 

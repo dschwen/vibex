@@ -7,8 +7,8 @@
 
 #include "et/ast.hpp"
 #include "et/normalize.hpp"
-#include "et/rewrite_ast.hpp"
-#include "et/pattern.hpp"
+#include "et/rewrite_ast.hpp" // for equal()
+#include "et/ast_pattern.hpp"
 
 namespace et {
 
@@ -16,7 +16,8 @@ using AstBindings = std::unordered_map<int, Expr>;
 using AstMultiBindings = std::unordered_map<int, std::vector<Expr>>;
 
 inline bool is_named(const Expr& e, const char* n) {
-  auto p = e.n; std::string s(n);
+  auto p = e.n;
+  std::string s(n);
   if (s == "Add") return (bool)std::dynamic_pointer_cast<AddNode>(p);
   if (s == "Mul") return (bool)std::dynamic_pointer_cast<MulNode>(p);
   if (s == "Neg") return (bool)std::dynamic_pointer_cast<NegNode>(p);
@@ -42,15 +43,19 @@ namespace detail_ast_match {
   inline bool match_node(const Expr& e, const astpat::Pattern& p, AstBindings& b, AstMultiBindings& mb);
 
   inline bool match_ac(const Expr& e, const astpat::Pattern& p, AstBindings& b, AstMultiBindings& mb) {
+    // Flatten children of e under the AC op
     std::vector<Expr> xs; gather_named(e, p.name.c_str(), xs);
+    // Pattern children excluding spread, ordered by specificity
     std::vector<std::size_t> pidx; pidx.reserve(p.ch.size());
     for (std::size_t i=0;i<p.ch.size();++i) if (!(p.ch[i].kind==astpat::Pattern::Kind::Placeholder && p.ch[i].is_spread)) pidx.push_back(i);
     std::sort(pidx.begin(), pidx.end(), [&](std::size_t i, std::size_t j){ return astpat::specificity(p.ch[i]) > astpat::specificity(p.ch[j]); });
+    // Spread position if any
     std::size_t spreads = 0, spread_idx = ~std::size_t(0);
     for (std::size_t i=0;i<p.ch.size();++i) if (p.ch[i].kind==astpat::Pattern::Kind::Placeholder && p.ch[i].is_spread) { spreads++; spread_idx=i; }
     if (spreads>1) return false;
     if (spreads==0 && p.ch.size()!=xs.size()) return false;
     if (spreads==1 && p.ch.size()-1>xs.size()) return false;
+    // Backtracking assign
     std::vector<Expr> remaining = xs;
     std::function<bool(std::size_t)> dfs = [&](std::size_t i)->bool{
       if (i==pidx.size()) return true;
@@ -92,23 +97,31 @@ namespace detail_ast_match {
         return equal(it->second, e);
       }
     }
+    // Node: check name and handle AC
     if (!is_named(e, p.name.c_str())) return false;
     if (p.name=="Add" || p.name=="Mul") return match_ac(e, p, b, mb);
+    // Non-AC: arity must match exactly
     if (p.name=="Neg") {
       auto n = std::dynamic_pointer_cast<NegNode>(e.n);
       return match_node(Expr{n->a}, p.ch[0], b, mb);
     }
-    if (p.name=="Sin") { auto n = std::dynamic_pointer_cast<SinNode>(e.n); return match_node(Expr{n->a}, p.ch[0], b, mb); }
-    if (p.name=="Cos") { auto n = std::dynamic_pointer_cast<CosNode>(e.n); return match_node(Expr{n->a}, p.ch[0], b, mb); }
+    if (p.name=="Sin") {
+      auto n = std::dynamic_pointer_cast<SinNode>(e.n);
+      return match_node(Expr{n->a}, p.ch[0], b, mb);
+    }
+    if (p.name=="Cos") {
+      auto n = std::dynamic_pointer_cast<CosNode>(e.n);
+      return match_node(Expr{n->a}, p.ch[0], b, mb);
+    }
     return false;
   }
 } // namespace detail_ast_match
 
 inline bool match(const Expr& e, const astpat::Pattern& p, AstBindings& b, AstMultiBindings& mb) {
   b.clear(); mb.clear();
+  // Ensure canonical AC shape first
   Expr en = normalize(e);
   return detail_ast_match::match_node(en, p, b, mb);
 }
 
 } // namespace et
-

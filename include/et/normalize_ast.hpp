@@ -46,12 +46,13 @@ inline int kind_rank(const Expr& e) {
   if (std::dynamic_pointer_cast<GeNode>(p))    return 17;
   if (std::dynamic_pointer_cast<EqNode>(p))    return 18;
   if (std::dynamic_pointer_cast<NeNode>(p))    return 19;
-  if (std::dynamic_pointer_cast<IfNode>(p))    return 20;
-  if (std::dynamic_pointer_cast<SelectNode>(p))return 21;
-  if (std::dynamic_pointer_cast<IterNode>(p))  return 22;
-  if (std::dynamic_pointer_cast<StateReadNode>(p)) return 23;
-  if (std::dynamic_pointer_cast<LoopForNode>(p)) return 24;
-  if (std::dynamic_pointer_cast<LoopOutNode>(p)) return 25;
+  if (std::dynamic_pointer_cast<NotNode>(p))   return 20;
+  if (std::dynamic_pointer_cast<IfNode>(p))    return 21;
+  if (std::dynamic_pointer_cast<SelectNode>(p))return 22;
+  if (std::dynamic_pointer_cast<IterNode>(p))  return 23;
+  if (std::dynamic_pointer_cast<StateReadNode>(p)) return 24;
+  if (std::dynamic_pointer_cast<LoopForNode>(p)) return 25;
+  if (std::dynamic_pointer_cast<LoopOutNode>(p)) return 26;
   return 100;
 }
 
@@ -148,6 +149,10 @@ inline Expr normalize(const Expr& e) {
   if (auto n = std::dynamic_pointer_cast<LogNode>(e.n)) { Expr a = normalize(Expr{n->a}); double v; if (is_const(a, &v)) return lit(std::log(v)); return log(a); }
   if (auto n = std::dynamic_pointer_cast<SqrtNode>(e.n)){ Expr a = normalize(Expr{n->a}); double v; if (is_const(a, &v)) return lit(std::sqrt(v)); return sqrt(a); }
   if (auto n = std::dynamic_pointer_cast<TanhNode>(e.n)){ Expr a = normalize(Expr{n->a}); double v; if (is_const(a, &v)) return lit(std::tanh(v)); return tanh(a); }
+  // Logical not
+  if (auto n = std::dynamic_pointer_cast<NotNode>(e.n)) {
+    Expr a = normalize(Expr{n->a}); double v; if (is_const(a, &v)) return lit(v == 0.0 ? 1.0 : 0.0); return Not(a);
+  }
 
   // Binary arithmetic
   if (auto n = std::dynamic_pointer_cast<AddNode>(e.n)) {

@@ -2,7 +2,7 @@
 #include <cstddef>
 
 #include "et/ast.hpp"
-#include "et/compile_cse_ast.hpp"
+#include "et/compile_cse.hpp"
 
 using namespace et;
 
@@ -27,7 +27,7 @@ int main() {
   Expr e = t*t + t*t + t*t; // heavy reuse of same structure
 
   CountingBackendAst b;
-  auto res = compile_cse_ast(e, b);
+  auto res = compile_cse(e, b);
   (void)res;
 
   // Expect only unique substructures compiled once:

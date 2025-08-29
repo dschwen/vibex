@@ -1,7 +1,8 @@
 #include <iostream>
 #include <vector>
 #include "et/ast.hpp"
-#include "et/compile_ast.hpp"
+#include "et/compile.hpp"
+#include "et/compile_cse.hpp"
 #include "et/compile_cse_ast.hpp"
 #include "et/tape_backend.hpp"
 #ifdef ET_WITH_TORCH
@@ -15,7 +16,7 @@ int main() {
   Expr f = exp(x)*tanh(y) + log(z) + exp(x)*tanh(y) + sqrt(z*z);
 
   TapeBackend TB(3);
-  int out_id = compile_cse_ast(f, TB);
+  int out_id = compile_cse(f, TB);
   TB.tape.output_id = out_id;
 
   std::vector<double> in = {1.2, 0.5, 3.0};
@@ -27,7 +28,7 @@ int main() {
 
 #ifdef ET_WITH_TORCH
   TorchJITBackend JB(3);
-  auto jout = compile_cse_ast(f, JB);
+  auto jout = compile_cse(f, JB);
   JB.g.registerOutput(jout);
   std::cout << "Torch Graph with CSE (AST):\n";
   JB.g.print(std::cout);

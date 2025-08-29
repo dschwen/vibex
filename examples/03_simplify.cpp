@@ -1,9 +1,9 @@
 #include <iostream>
 #include <vector>
 #include "et/ast.hpp"
-#include "et/normalize_ast.hpp"
+#include "et/normalize.hpp"
 #include "et/rewrite_ast.hpp"
-#include "et/compile_ast.hpp"
+#include "et/compile.hpp"
 #include "et/tape_backend.hpp"
 
 int main() {

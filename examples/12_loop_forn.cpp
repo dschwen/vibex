@@ -1,24 +1,24 @@
 #include <iostream>
 #define ET_ENABLE_CONTROL_FLOW 1
-#include "et/expr.hpp"
-#include "et/runtime_ast.hpp"
+#include "et/ast.hpp"
+#include "et/compile.hpp"
+#include "et/tape_backend.hpp"
 
 using namespace et;
 
 int main() {
   // ForN: sum of i for i in [0, n)
-  auto n = Var<double,0>{};
-  auto init = lit(0.0);
-  auto next = State<0>() + Iter();
-  auto loop = LoopForN(n, init, next);
+  auto n = var(0);
+  Expr core = loop_for(1, n, { lit(0.0) }, { state(0) + iter() });
+  Expr sum = loop_out(0, core);
 
-  auto g = compile_to_runtime(loop);
-  std::cout << "Runtime AST: " << r_to_string(g) << "\n";
+  TapeBackend tb(1);
+  int out = compile_runtime(sum, tb);
+  tb.tape.output_id = out;
   for (int k : {0,1,2,5,10}) {
-    double res = eval(g, {static_cast<double>(k)});
+    double res = tb.tape.forward({static_cast<double>(k)});
     double expected = 0.5 * k * (k - 1);
     std::cout << "n=" << k << " -> " << res << " (expected " << expected << ")\n";
   }
   return 0;
 }
-

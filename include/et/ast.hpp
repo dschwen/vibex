@@ -78,6 +78,12 @@ struct TanhNode final : Node {
   explicit TanhNode(std::shared_ptr<Node> x) : a(std::move(x)) {}
   double eval(const std::vector<double>& in) const override { using std::tanh; return tanh(a->eval(in)); }
 };
+// Logical not (returns 1.0 for falsey, 0.0 for truthy)
+struct NotNode final : Node {
+  std::shared_ptr<Node> a;
+  explicit NotNode(std::shared_ptr<Node> x) : a(std::move(x)) {}
+  double eval(const std::vector<double>& in) const override { return (a->eval(in) == 0.0) ? 1.0 : 0.0; }
+};
 
 // Binary nodes
 struct AddNode final : Node {
@@ -172,6 +178,7 @@ inline Expr log(const Expr& x) { return Expr{std::make_shared<LogNode>(x.n)}; }
 inline Expr sqrt(const Expr& x) { return Expr{std::make_shared<SqrtNode>(x.n)}; }
 inline Expr tanh(const Expr& x) { return Expr{std::make_shared<TanhNode>(x.n)}; }
 inline Expr pow(const Expr& x, const Expr& y) { return Expr{std::make_shared<PowNode>(x.n, y.n)}; }
+inline Expr Not(const Expr& x) { return Expr{std::make_shared<NotNode>(x.n)}; }
 
 // Comparisons
 inline Expr operator<(const Expr& a, const Expr& b) { return Expr{std::make_shared<LtNode>(a.n, b.n)}; }
@@ -180,6 +187,7 @@ inline Expr operator>(const Expr& a, const Expr& b) { return Expr{std::make_shar
 inline Expr operator>=(const Expr& a, const Expr& b) { return Expr{std::make_shared<GeNode>(a.n, b.n)}; }
 inline Expr operator==(const Expr& a, const Expr& b) { return Expr{std::make_shared<EqNode>(a.n, b.n)}; }
 inline Expr operator!=(const Expr& a, const Expr& b) { return Expr{std::make_shared<NeNode>(a.n, b.n)}; }
+inline Expr operator!(const Expr& a) { return Expr{std::make_shared<NotNode>(a.n)}; }
 
 // If and Select
 inline Expr If(const Expr& c, const Expr& t, const Expr& e) { return Expr{std::make_shared<IfNode>(c.n, t.n, e.n)}; }

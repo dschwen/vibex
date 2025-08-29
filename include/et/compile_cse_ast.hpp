@@ -7,7 +7,7 @@
 #include <functional>
 
 #include "et/ast.hpp"
-#include "et/normalize_ast.hpp"
+#include "et/normalize.hpp"
 #include "et/expr.hpp"
 #include "et/tape_backend.hpp"
 
@@ -16,7 +16,7 @@ namespace et {
 // --- structural hash ids for AST node kinds
 enum class AstOpId : std::uint64_t {
   Const = 0x01, Var   = 0x02,
-  Neg   = 0x10, Sin   = 0x11, Cos = 0x12, Exp = 0x13, Log = 0x14, Sqrt = 0x15, Tanh = 0x16,
+  Neg   = 0x10, Sin   = 0x11, Cos = 0x12, Exp = 0x13, Log = 0x14, Sqrt = 0x15, Tanh = 0x16, Not = 0x17,
   Add   = 0x20, Sub   = 0x21, Mul = 0x22, Div  = 0x23, Pow  = 0x24,
   Lt    = 0x30, Le    = 0x31, Gt  = 0x32, Ge   = 0x33, Eq   = 0x34, Ne   = 0x35,
   If    = 0x40, Select= 0x41,
@@ -49,6 +49,7 @@ inline std::uint64_t shash_ast(const Expr& e) {
   if (auto n = std::dynamic_pointer_cast<LogNode>(p))  return h1(AstOpId::Log,  Expr{n->a});
   if (auto n = std::dynamic_pointer_cast<SqrtNode>(p)) return h1(AstOpId::Sqrt, Expr{n->a});
   if (auto n = std::dynamic_pointer_cast<TanhNode>(p)) return h1(AstOpId::Tanh, Expr{n->a});
+  if (auto n = std::dynamic_pointer_cast<NotNode>(p))  return h1(AstOpId::Not,  Expr{n->a});
   if (std::dynamic_pointer_cast<IterNode>(p))         return static_cast<std::uint64_t>(AstOpId::Iter);
   if (auto n = std::dynamic_pointer_cast<StateReadNode>(p)) {
     std::uint64_t h = static_cast<std::uint64_t>(AstOpId::State);
@@ -96,6 +97,7 @@ inline std::string skey_ast(const Expr& e) {
   if (auto n = std::dynamic_pointer_cast<LogNode>(p))   { k1("Log", Expr{n->a}); return os.str(); }
   if (auto n = std::dynamic_pointer_cast<SqrtNode>(p))  { k1("Sqrt",Expr{n->a}); return os.str(); }
   if (auto n = std::dynamic_pointer_cast<TanhNode>(p))  { k1("Tanh",Expr{n->a}); return os.str(); }
+  if (auto n = std::dynamic_pointer_cast<NotNode>(p))   { k1("Not", Expr{n->a}); return os.str(); }
   if (std::dynamic_pointer_cast<IterNode>(p))            { os<<"Iter()"; return os.str(); }
   if (auto n = std::dynamic_pointer_cast<StateReadNode>(p)) { os<<"State("<<n->index<<")"; return os.str(); }
   if (auto n = std::dynamic_pointer_cast<AddNode>(p))   { k2("Add", Expr{n->a}, Expr{n->b}); return os.str(); }
@@ -180,6 +182,7 @@ auto compile_cse_ast(const Expr& e, Backend& b) -> typename Backend::result_type
     else if (auto n = std::dynamic_pointer_cast<GeNode>(p))    id = b.template emitApply(GeOp{},  rec(Expr{n->a}), rec(Expr{n->b}));
     else if (auto n = std::dynamic_pointer_cast<EqNode>(p))    id = b.template emitApply(EqOp{},  rec(Expr{n->a}), rec(Expr{n->b}));
     else if (auto n = std::dynamic_pointer_cast<NeNode>(p))    id = b.template emitApply(NeOp{},  rec(Expr{n->a}), rec(Expr{n->b}));
+    else if (auto n = std::dynamic_pointer_cast<NotNode>(p))   id = b.template emitApply(NotOp{}, rec(Expr{n->a}));
     else if (auto n = std::dynamic_pointer_cast<IfNode>(p))    id = b.template emitApply(IfOp{}, rec(Expr{n->c}), rec(Expr{n->t}), rec(Expr{n->e}));
     else if (auto n = std::dynamic_pointer_cast<SelectNode>(p))id = b.template emitApply(SelectOp{}, rec(Expr{n->m}), rec(Expr{n->t}), rec(Expr{n->e}));
 #endif
@@ -219,6 +222,7 @@ inline int compile_cse_ast(const Expr& e, TapeBackend& b) {
     else if (auto n = std::dynamic_pointer_cast<GeNode>(p))    id = b.emitApply(GeOp{},  rec(Expr{n->a}), rec(Expr{n->b}));
     else if (auto n = std::dynamic_pointer_cast<EqNode>(p))    id = b.emitApply(EqOp{},  rec(Expr{n->a}), rec(Expr{n->b}));
     else if (auto n = std::dynamic_pointer_cast<NeNode>(p))    id = b.emitApply(NeOp{},  rec(Expr{n->a}), rec(Expr{n->b}));
+    else if (auto n = std::dynamic_pointer_cast<NotNode>(p))   id = b.emitApply(NotOp{}, rec(Expr{n->a}));
     else if (auto n = std::dynamic_pointer_cast<IfNode>(p))    id = b.emitApply(IfOp{}, rec(Expr{n->c}), rec(Expr{n->t}), rec(Expr{n->e}));
     else if (auto n = std::dynamic_pointer_cast<SelectNode>(p))id = b.emitApply(SelectOp{}, rec(Expr{n->m}), rec(Expr{n->t}), rec(Expr{n->e}));
 #endif

@@ -2,8 +2,9 @@
 #include <string>
 
 #include "et/ast.hpp"
-#include "et/ast_to_runtime.hpp"
 #include "et/normalize.hpp"
+#include "et/denormalize.hpp"
+#include "et/print.hpp"
 
 using namespace et;
 
@@ -12,10 +13,10 @@ int main() {
 
   // Case: Add(a, Neg(b), Neg(c)) -> Sub(a, Add(b,c))
   {
-    Expr e = a - b - c; // normalize -> Add(a,Neg(b),Neg(c)) in RGraph
-    RGraph g = normalize(ast_to_rgraph(e));
-    RGraph gd = denormalize_sub(g);
-    std::string s = r_to_string(gd);
+    Expr e = a - b - c; // normalize -> Add(a,Neg(b),Neg(c))
+    Expr n = normalize(e);
+    Expr d = denormalize_sub(n);
+    std::string s = to_string_pretty(d);
     // Expect outer Sub present and inner Add
     assert(s.find("Sub(") != std::string::npos);
     assert(s.find("Add(") != std::string::npos);
@@ -24,9 +25,9 @@ int main() {
   // Case: all neg terms Add(Neg(a), Neg(b)) -> Neg(Add(a,b))
   {
     Expr e = -(a) - b; // normalize -> Add(Neg(a), Neg(b))
-    RGraph g = normalize(ast_to_rgraph(e));
-    RGraph gd = denormalize_sub(g);
-    std::string s = r_to_string(gd);
+    Expr n = normalize(e);
+    Expr d = denormalize_sub(n);
+    std::string s = to_string_pretty(d);
     // Expect Neg(Add(...))
     assert(s.find("Neg(Add(") != std::string::npos);
   }
@@ -34,9 +35,9 @@ int main() {
   // Case: Include negative constant: a - 3 - b -> Sub(a, Add(C(3), b))
   {
     Expr e = a - lit(3.0) - b;
-    RGraph g = normalize(ast_to_rgraph(e));
-    RGraph gd = denormalize_sub(g);
-    std::string s = r_to_string(gd);
+    Expr n = normalize(e);
+    Expr d = denormalize_sub(n);
+    std::string s = to_string_pretty(d);
     assert(s.find("Sub(") != std::string::npos);
     assert(s.find("C(3)") != std::string::npos);
   }

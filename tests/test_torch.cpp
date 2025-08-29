@@ -1,7 +1,7 @@
 #include <cassert>
 
 #include "et/ast.hpp"
-#include "et/compile_ast.hpp"
+#include "et/compile.hpp"
 #include "et/torch_jit_backend.hpp"
 
 using namespace et;
