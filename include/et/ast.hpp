@@ -130,6 +130,29 @@ struct SelectNode final : Node {
   double eval(const std::vector<double>& in) const override { return (m->eval(in) != 0.0) ? t->eval(in) : e->eval(in); }
 };
 
+// Loop nodes (evaluation is not supported in pure AST; compile to Tape for execution)
+struct IterNode final : Node {
+  double eval(const std::vector<double>&) const override { return 0.0; }
+};
+struct StateReadNode final : Node {
+  std::size_t index{};
+  explicit StateReadNode(std::size_t i) : index(i) {}
+  double eval(const std::vector<double>&) const override { return 0.0; }
+};
+struct LoopForNode final : Node {
+  std::size_t K{}; // number of carried state variables
+  // children: [N, init0..initK-1, next0..nextK-1]
+  std::vector<std::shared_ptr<Node>> ch;
+  LoopForNode(std::size_t K_, std::vector<std::shared_ptr<Node>> ch_) : K(K_), ch(std::move(ch_)) {}
+  double eval(const std::vector<double>&) const override { return 0.0; }
+};
+struct LoopOutNode final : Node {
+  std::size_t J{}; // which carried var to extract
+  std::shared_ptr<Node> loop;
+  LoopOutNode(std::size_t J_, std::shared_ptr<Node> l_) : J(J_), loop(std::move(l_)) {}
+  double eval(const std::vector<double>&) const override { return 0.0; }
+};
+
 // Construction helpers
 inline Expr lit(double v) { return Expr{std::make_shared<ConstNode>(v)}; }
 inline Expr var(std::size_t i) { return Expr{std::make_shared<VarNode>(i)}; }
@@ -161,6 +184,18 @@ inline Expr operator!=(const Expr& a, const Expr& b) { return Expr{std::make_sha
 // If and Select
 inline Expr If(const Expr& c, const Expr& t, const Expr& e) { return Expr{std::make_shared<IfNode>(c.n, t.n, e.n)}; }
 inline Expr Select(const Expr& m, const Expr& t, const Expr& e) { return Expr{std::make_shared<SelectNode>(m.n, t.n, e.n)}; }
+
+// Loop builders
+inline Expr iter() { return Expr{std::make_shared<IterNode>()}; }
+inline Expr state(std::size_t i) { return Expr{std::make_shared<StateReadNode>(i)}; }
+inline Expr loop_for(std::size_t K, const Expr& N, const std::vector<Expr>& inits, const std::vector<Expr>& nexts) {
+  std::vector<std::shared_ptr<Node>> ch; ch.reserve(1 + inits.size() + nexts.size());
+  ch.push_back(N.n);
+  for (auto& e : inits) ch.push_back(e.n);
+  for (auto& e : nexts) ch.push_back(e.n);
+  return Expr{ std::make_shared<LoopForNode>(K, std::move(ch)) };
+}
+inline Expr loop_out(std::size_t J, const Expr& loop) { return Expr{ std::make_shared<LoopOutNode>(J, loop.n) }; }
 
 // Evaluate an expression with inputs by index
 inline double eval(const Expr& e, const std::vector<double>& inputs) {

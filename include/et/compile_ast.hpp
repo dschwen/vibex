@@ -25,6 +25,27 @@ inline int compile_runtime(const Expr& e, TapeBackend& b) {
     if (auto q = std::dynamic_pointer_cast<MulNode>(p))   return b.emitMul(rec(q->a), rec(q->b));
     if (auto q = std::dynamic_pointer_cast<DivNode>(p))   return b.emitDiv(rec(q->a), rec(q->b));
     if (auto q = std::dynamic_pointer_cast<PowNode>(p))   return b.emitPow(rec(q->a), rec(q->b));
+    // Control flow (compile via Tape ternary/bool nodes if enabled)
+    if (auto q = std::dynamic_pointer_cast<LtNode>(p))    return b.emitApply(LtOp{},  rec(q->a), rec(q->b));
+    if (auto q = std::dynamic_pointer_cast<LeNode>(p))    return b.emitApply(LeOp{},  rec(q->a), rec(q->b));
+    if (auto q = std::dynamic_pointer_cast<GtNode>(p))    return b.emitApply(GtOp{},  rec(q->a), rec(q->b));
+    if (auto q = std::dynamic_pointer_cast<GeNode>(p))    return b.emitApply(GeOp{},  rec(q->a), rec(q->b));
+    if (auto q = std::dynamic_pointer_cast<EqNode>(p))    return b.emitApply(EqOp{},  rec(q->a), rec(q->b));
+    if (auto q = std::dynamic_pointer_cast<NeNode>(p))    return b.emitApply(NeOp{},  rec(q->a), rec(q->b));
+    if (auto q = std::dynamic_pointer_cast<IfNode>(p))    return b.emitApply(IfOp{}, rec(q->c), rec(q->t), rec(q->e));
+    if (auto q = std::dynamic_pointer_cast<SelectNode>(p))return b.emitApply(SelectOp{}, rec(q->m), rec(q->t), rec(q->e));
+    // Loops: use Tape non-templated emits
+    if (auto q = std::dynamic_pointer_cast<IterNode>(p)) return b.emitIter();
+    if (auto q = std::dynamic_pointer_cast<StateReadNode>(p)) return b.emitStateRead(q->index);
+    if (auto q = std::dynamic_pointer_cast<LoopForNode>(p)) {
+      std::vector<int> chids; chids.reserve(q->ch.size());
+      for (auto& c : q->ch) chids.push_back(rec(c));
+      return b.emitLoopFor(q->K, chids);
+    }
+    if (auto q = std::dynamic_pointer_cast<LoopOutNode>(p)) {
+      int loop_id = rec(q->loop);
+      return b.emitLoopOut(q->J, loop_id);
+    }
     // Fallback: constant zero
     return b.emitConst(0.0);
   };

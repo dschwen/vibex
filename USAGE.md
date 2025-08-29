@@ -399,8 +399,8 @@ std::cout << r_to_string(g) << "\n"; // Already pretty (Sub restored where appli
 - **Simplify**: We only fold constants known on both sides. Neutral-element rewrites (like `x + 0`) are omitted to keep return types stable. If you want aggressive algebra, we can switch to NTTP constants later.
 - **Template depth**: With the fixed `diff` sugar and careful `d<I>` implementations, default depth is fine. If you add extremely nested ops, `-ftemplate-depth=2000` is a safe global fallback.
 - **CSE choice**:  
-  - `compile_cse` compares structural **strings** (robust, a bit heavier).  
-  - `compile_hash_cse` is faster but uses hashing plus lazy structural keys only on collisions.
+  - `compile_cse_ast` performs CSE on the AST using a structural hash with collision-checked keys (fast, general).  
+  - `compile_hash_cse_ast` uses canonical string keys (simple and robust, a bit heavier).
 - **Rewrite normalization**: Matching happens after AC normalization; subtraction is represented as `Add(..., Neg(...))` unless you denormalize back.
 - **Torch op mapping**: Some ops may require broadcasting semantics; decide whether your graph should “scalarize” or broadcast to match tensor shapes.
 
@@ -409,26 +409,23 @@ std::cout << r_to_string(g) << "\n"; // Already pretty (Sub restored where appli
 ## 9) Tiny end-to-end example
 
 ```cpp
-#include "et/expr.hpp"
-#include "et/simplify.hpp"
+#include "et/ast.hpp"
 #include "et/tape_backend.hpp"
-#include "et/compile_hash_cse.hpp"
+#include "et/compile_hash_cse_ast.hpp"
 
 using namespace et;
 
 int main() {
-  auto [x, y, z] = Vars<double, 3>();
+  auto x = var(0), y = var(1), z = var(2);
+  Expr f = sin(x) * y + z * z;
 
-  auto f = sin(x) * y + z * z;
-  auto dfx = simplify(diff(f, x)); // cos(x)*y
-
-  TapeBackend tape;
-  auto h = compile_hash_cse(dfx, tape);
+  TapeBackend tb(3);
+  int root = compile_hash_cse_ast(f, tb);
+  tb.tape.output_id = root;
 
   std::vector<double> in = {2.4, 6.0, 1.1};
-  double val = tape.forward(h, in);        // numeric value of d f / d x at inputs
-  auto grad = tape.backward(in);           // gradient wrt (x,y,z) of d f / d x (here mostly 0 except x chain)
-
+  double val = tb.tape.forward(in);        // f(x,y,z)
+  auto grad = tb.tape.backward(in);        // ∂f/∂(x,y,z)
   (void)val; (void)grad;
 }
 ```

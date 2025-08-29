@@ -133,14 +133,14 @@ Assumptions
 - Add `Select`: elementwise dispatch with broadcasting when types support it.
 - Add `Loop`: implement counted loops; for `While`, re‑evaluate `cond(state)` each iteration. The loop state read `State<I>` pulls the current carried state from the evaluator’s loop frame; `Iter()` exposes the 0‑based iteration counter.
 
-5.2 CSE/Hash CSE compilers (`include/et/compile_cse.hpp`, `include/et/compile_hash_cse.hpp`)
-- Treat `If`/`Select`/`Loop` as new op kinds in the visitors. For `If`/`Select`, dedupe identical subtrees as usual.
-- For `Loop`, dedupe identical `cond`/`body` subgraphs reused in multiple callers; loop frames remain distinct per use site at runtime.
+5.2 CSE/Hash CSE compilers (AST) (`include/et/compile_cse_ast.hpp`, `include/et/compile_hash_cse_ast.hpp`)
+- Treat `If`/`Select`/comparisons/`LoopFor`/`LoopOut` as first-class AST kinds. CSE keys include op kind and normalized children.
+- For loops, structural hashing uses `(K, N, inits..., nexts...)`; memoization eliminates repeated loop bodies across uses.
 
 5.3 Tape backend (`include/et/tape_backend.hpp`)
 - Extend `Tape::Kind` with `KIter`, `KStateRead`, `KLoopFor`, `KLoopOut` along with the existing control‑flow kinds.
-- Forward execution: `KLoopOut` evaluates the referenced `KLoopFor` by iterating `n` times and evaluating `next_k` in a no‑memo sub‑evaluator that supplies `Iter()` and `State<I>` from a loop context. Returns the `J`‑th carried value.
-- Reverse VJP: initial version treats loops as opaque at VJP time (no gradient flows through the loop body). Follow‑up work will record per‑iteration carried values and run a reverse iteration to propagate adjoints into inputs and init state.
+- Forward execution: `KLoopOut` evaluates the referenced `KLoopFor` by iterating `n` times and evaluating `next_k` in a loop context that supplies `Iter()` and `State<I>`. Returns the `J`‑th carried value.
+- Reverse VJP: implemented by reverse iteration of the body Jacobian^T, propagating into init state and input variables. No gradient flows into boolean predicates.
 - Variables are still emitted by runtime index via `emitVar<T>(idx)`.
 
 5.4 Torch JIT backend (`include/et/torch_jit_backend.hpp`)
@@ -190,16 +190,14 @@ Gating
 
 ## 9. Implementation Sketch
 
-Headers to touch
-- `include/et/expr.hpp`: add op tags, `LoopState` node, helpers.
-- `include/et/runtime_ast.hpp`: add `NodeKind::{If, Select, LoopFor, LoopOut, Iter, StateRead}` and node payloads.
-- `include/et/compile_runtime.hpp`: evaluator for new nodes; loop frame with current state binding for `LoopState` reads.
-- `include/et/simplify.hpp` and `include/et/normalize.hpp`: constant folding and small unrolls.
-- `include/et/compile_cse.hpp`, `include/et/compile_hash_cse.hpp`: include new kinds in visitors and hashing.
-- `include/et/tape_backend.hpp`: new tape kinds (Iter/StateRead/LoopFor/LoopOut), forward loop evaluation, VJP in a follow‑up.
-- `include/et/torch_jit_backend.hpp`: emit prim::If/Loop/aten::where.
-- `include/et/rules_default.hpp`: add guarded rules for the simple folds/pushes.
-- Examples: `examples/10_control_flow.cpp` (demo If/Select/ForN). Tests under `tests/` accordingly.
+Headers to touch (AST path)
+- `include/et/ast.hpp`: add AST nodes (`If`, `Select`, `LoopFor`, `LoopOut`, `Iter`, `StateRead`) and helpers (`loop_for`, `loop_out`, `iter`, `state`).
+- `include/et/compile_ast.hpp`: lower AST to Tape; add control‑flow and loop emits.
+- `include/et/normalize_ast.hpp`: constant folding and small structural unrolls.
+- `include/et/compile_cse_ast.hpp`, `include/et/compile_hash_cse_ast.hpp`: include new kinds in hashing and emission.
+- `include/et/tape_backend.hpp`: tape kinds (Iter/StateRead/LoopFor/LoopOut), forward loop evaluation, and VJP through loops.
+- `include/et/torch_jit_backend.hpp`: emit prim::If/Loop/aten::where; dynamic loop emitters for AST compilers.
+- Examples: `examples/10_control_flow.cpp` (demo If/Select), `examples/15_ast_torch_loop.cpp` (AST loops to prim::Loop). Tests under `tests/` accordingly.
 
 Key data structure additions (pseudocode)
 ```cpp

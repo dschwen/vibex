@@ -48,6 +48,10 @@ inline int kind_rank(const Expr& e) {
   if (std::dynamic_pointer_cast<NeNode>(p))    return 19;
   if (std::dynamic_pointer_cast<IfNode>(p))    return 20;
   if (std::dynamic_pointer_cast<SelectNode>(p))return 21;
+  if (std::dynamic_pointer_cast<IterNode>(p))  return 22;
+  if (std::dynamic_pointer_cast<StateReadNode>(p)) return 23;
+  if (std::dynamic_pointer_cast<LoopForNode>(p)) return 24;
+  if (std::dynamic_pointer_cast<LoopOutNode>(p)) return 25;
   return 100;
 }
 
@@ -197,9 +201,24 @@ inline Expr normalize(const Expr& e) {
     return Select(m, t, el);
   }
 
+  // Loops: normalize children structurally (no evaluation here)
+  if (auto n = std::dynamic_pointer_cast<IterNode>(e.n)) { return e; }
+  if (auto n = std::dynamic_pointer_cast<StateReadNode>(e.n)) { return e; }
+  if (auto n = std::dynamic_pointer_cast<LoopForNode>(e.n)) {
+    std::vector<Expr> ch; ch.reserve(n->ch.size());
+    for (auto& c : n->ch) ch.push_back(normalize(Expr{c}));
+    // rebuild
+    std::vector<std::shared_ptr<Node>> chp; chp.reserve(ch.size());
+    for (auto& ce : ch) chp.push_back(ce.n);
+    return Expr{ std::make_shared<LoopForNode>(n->K, std::move(chp)) };
+  }
+  if (auto n = std::dynamic_pointer_cast<LoopOutNode>(e.n)) {
+    Expr l = normalize(Expr{n->loop});
+    return Expr{ std::make_shared<LoopOutNode>(n->J, l.n) };
+  }
+
   // Fallback
   return e;
 }
 
 } // namespace et
-

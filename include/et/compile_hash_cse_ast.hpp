@@ -17,6 +17,8 @@ inline std::string ast_key(const Expr& e) {
   auto key2 = [&](const char* name, const Expr& a, const Expr& b){ os<<name<<'('<<ast_key(a)<<','<<ast_key(b)<<')'; };
   if (auto c = std::dynamic_pointer_cast<ConstNode>(p)) { os<<"C("<<c->value<<")"; return os.str(); }
   if (auto v = std::dynamic_pointer_cast<VarNode>(p))   { os<<"V("<<v->index<<")"; return os.str(); }
+  if (std::dynamic_pointer_cast<IterNode>(p))           { os<<"Iter()"; return os.str(); }
+  if (auto s = std::dynamic_pointer_cast<StateReadNode>(p)) { os<<"State("<<s->index<<")"; return os.str(); }
   if (std::dynamic_pointer_cast<NegNode>(p))  { key1("Neg", Expr{std::dynamic_pointer_cast<NegNode>(p)->a}); return os.str(); }
   if (std::dynamic_pointer_cast<SinNode>(p))  { key1("Sin", Expr{std::dynamic_pointer_cast<SinNode>(p)->a}); return os.str(); }
   if (std::dynamic_pointer_cast<CosNode>(p))  { key1("Cos", Expr{std::dynamic_pointer_cast<CosNode>(p)->a}); return os.str(); }
@@ -37,6 +39,12 @@ inline std::string ast_key(const Expr& e) {
   if (std::dynamic_pointer_cast<NeNode>(p))   { key2("Ne",  Expr{std::dynamic_pointer_cast<NeNode>(p)->a},  Expr{std::dynamic_pointer_cast<NeNode>(p)->b}); return os.str(); }
   if (std::dynamic_pointer_cast<IfNode>(p))   { auto n=std::dynamic_pointer_cast<IfNode>(p); os<<"If("<<ast_key(Expr{n->c})<<","<<ast_key(Expr{n->t})<<","<<ast_key(Expr{n->e})<<")"; return os.str(); }
   if (std::dynamic_pointer_cast<SelectNode>(p)){ auto n=std::dynamic_pointer_cast<SelectNode>(p); os<<"Sel("<<ast_key(Expr{n->m})<<","<<ast_key(Expr{n->t})<<","<<ast_key(Expr{n->e})<<")"; return os.str(); }
+  if (auto lf = std::dynamic_pointer_cast<LoopForNode>(p)) {
+    os<<"LFor(K="<<lf->K<<";";
+    for (std::size_t i = 0; i < lf->ch.size(); ++i) { if (i) os<<","; os<<ast_key(Expr{lf->ch[i]}); }
+    os<<")"; return os.str();
+  }
+  if (auto lo = std::dynamic_pointer_cast<LoopOutNode>(p)) { os<<"LOut(J="<<lo->J<<","<<ast_key(Expr{lo->loop})<<")"; return os.str(); }
   os<<"?"; return os.str();
 }
 
@@ -73,6 +81,17 @@ inline int compile_hash_cse_ast(const Expr& e, TapeBackend& b) {
     else if (auto n = std::dynamic_pointer_cast<NeNode>(p))    id = b.emitApply(NeOp{},  rec(Expr{n->a}), rec(Expr{n->b}));
     else if (auto n = std::dynamic_pointer_cast<IfNode>(p))    id = b.emitApply(IfOp{}, rec(Expr{n->c}), rec(Expr{n->t}), rec(Expr{n->e}));
     else if (auto n = std::dynamic_pointer_cast<SelectNode>(p))id = b.emitApply(SelectOp{}, rec(Expr{n->m}), rec(Expr{n->t}), rec(Expr{n->e}));
+    else if (std::dynamic_pointer_cast<IterNode>(p))           id = b.emitIter();
+    else if (auto n = std::dynamic_pointer_cast<StateReadNode>(p)) id = b.emitStateRead(n->index);
+    else if (auto n = std::dynamic_pointer_cast<LoopForNode>(p)) {
+      std::vector<int> chids; chids.reserve(n->ch.size());
+      for (auto& c : n->ch) chids.push_back(rec(Expr{c}));
+      id = b.emitLoopFor(n->K, chids);
+    }
+    else if (auto n = std::dynamic_pointer_cast<LoopOutNode>(p)) {
+      int loop_id = rec(Expr{n->loop});
+      id = b.emitLoopOut(n->J, loop_id);
+    }
     else id = b.emitConst(0.0);
     memo.emplace(std::move(k), id);
     return id;

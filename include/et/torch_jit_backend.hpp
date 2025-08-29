@@ -35,6 +35,56 @@ struct TorchJITBackend {
     return n->output();
   }
 
+  // Non-templated dynamic loop helpers for AST compilers
+  result_type emitIter() {
+    if (!loop_stack.empty() && loop_stack.back().iter_int) {
+      auto n = g.create(torch::jit::prim::NumToTensor, {loop_stack.back().iter_int});
+      g.insertNode(n);
+      return n->output();
+    }
+    return emitConst(Const<double>{0.0});
+  }
+  result_type emitStateRead(std::size_t idx) {
+    if (!loop_stack.empty() && idx < loop_stack.back().state.size()) return loop_stack.back().state[idx];
+    return emitConst(Const<double>{0.0});
+  }
+  result_type emitLoopFor(std::size_t K, const std::vector<result_type>& ch) {
+    // ch: [N, init0..initK-1, next0..nextK-1]
+    TORCH_CHECK(ch.size() == 1 + 2*K, "emitLoopFor: invalid children size");
+    auto n_int = g.create(c10::Symbol::fromQualString("aten::Int"), {ch[0]});
+    g.insertNode(n_int);
+    auto* loop = g.create(torch::jit::prim::Loop, K);
+    loop->addInput(n_int->output());
+    loop->addInput(makeConstBool(true));
+    for (std::size_t k = 0; k < K; ++k) loop->addInput(ch[1 + k]);
+    g.insertNode(loop);
+    auto* body = loop->addBlock();
+    {
+      torch::jit::WithInsertPoint guard(body);
+      auto* iter = body->addInput(); iter->setType(c10::IntType::get());
+      auto* cond = body->addInput(); cond->setType(c10::BoolType::get()); (void)cond;
+      std::vector<result_type> carried_in(K);
+      for (std::size_t k = 0; k < K; ++k) { auto* si = body->addInput(); si->setType(c10::TensorType::get()); carried_in[k] = si; }
+      loop_stack.push_back(LoopCtx{iter, carried_in});
+      std::vector<result_type> next(K);
+      for (std::size_t k = 0; k < K; ++k) next[k] = ch[1 + K + k];
+      loop_stack.pop_back();
+      body->registerOutput(makeConstBool(true));
+      for (std::size_t k = 0; k < K; ++k) body->registerOutput(next[k]);
+    }
+    std::vector<result_type> outs; outs.reserve(K);
+    for (std::size_t k = 0; k < K; ++k) outs.push_back(loop->output(k));
+    auto* list = g.createList(c10::TensorType::get(), outs);
+    g.insertNode(list);
+    return list->output();
+  }
+  result_type emitLoopOut(std::size_t J, result_type list_v) {
+    auto* idx = makeConstInt(static_cast<std::int64_t>(J));
+    auto* get = g.create(c10::Symbol::fromQualString("aten::__getitem__"), {list_v, idx});
+    g.insertNode(get);
+    return get->output();
+  }
+
   // Helper: constant int
   result_type makeConstInt(std::int64_t v) {
     auto n = g.create(torch::jit::prim::Constant);

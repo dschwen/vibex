@@ -19,7 +19,8 @@ enum class AstOpId : std::uint64_t {
   Neg   = 0x10, Sin   = 0x11, Cos = 0x12, Exp = 0x13, Log = 0x14, Sqrt = 0x15, Tanh = 0x16,
   Add   = 0x20, Sub   = 0x21, Mul = 0x22, Div  = 0x23, Pow  = 0x24,
   Lt    = 0x30, Le    = 0x31, Gt  = 0x32, Ge   = 0x33, Eq   = 0x34, Ne   = 0x35,
-  If    = 0x40, Select= 0x41
+  If    = 0x40, Select= 0x41,
+  Iter  = 0x50, State  = 0x51, LFor = 0x52, LOut = 0x53
 };
 
 static inline std::uint64_t mix64(std::uint64_t a, std::uint64_t b) {
@@ -48,6 +49,11 @@ inline std::uint64_t shash_ast(const Expr& e) {
   if (auto n = std::dynamic_pointer_cast<LogNode>(p))  return h1(AstOpId::Log,  Expr{n->a});
   if (auto n = std::dynamic_pointer_cast<SqrtNode>(p)) return h1(AstOpId::Sqrt, Expr{n->a});
   if (auto n = std::dynamic_pointer_cast<TanhNode>(p)) return h1(AstOpId::Tanh, Expr{n->a});
+  if (std::dynamic_pointer_cast<IterNode>(p))         return static_cast<std::uint64_t>(AstOpId::Iter);
+  if (auto n = std::dynamic_pointer_cast<StateReadNode>(p)) {
+    std::uint64_t h = static_cast<std::uint64_t>(AstOpId::State);
+    return mix64(h, static_cast<std::uint64_t>(n->index * 0x9e37));
+  }
   if (auto n = std::dynamic_pointer_cast<AddNode>(p))  return h2(AstOpId::Add,  Expr{n->a}, Expr{n->b});
   if (auto n = std::dynamic_pointer_cast<SubNode>(p))  return h2(AstOpId::Sub,  Expr{n->a}, Expr{n->b});
   if (auto n = std::dynamic_pointer_cast<MulNode>(p))  return h2(AstOpId::Mul,  Expr{n->a}, Expr{n->b});
@@ -61,6 +67,17 @@ inline std::uint64_t shash_ast(const Expr& e) {
   if (auto n = std::dynamic_pointer_cast<NeNode>(p))   return h2(AstOpId::Ne,   Expr{n->a}, Expr{n->b});
   if (auto n = std::dynamic_pointer_cast<IfNode>(p))   return mix64(static_cast<std::uint64_t>(AstOpId::If), mix64(shash_ast(Expr{n->c}), mix64(shash_ast(Expr{n->t}), shash_ast(Expr{n->e}))));
   if (auto n = std::dynamic_pointer_cast<SelectNode>(p))return mix64(static_cast<std::uint64_t>(AstOpId::Select), mix64(shash_ast(Expr{n->m}), mix64(shash_ast(Expr{n->t}), shash_ast(Expr{n->e}))));
+  if (auto n = std::dynamic_pointer_cast<LoopForNode>(p)) {
+    std::uint64_t h = static_cast<std::uint64_t>(AstOpId::LFor);
+    h = mix64(h, static_cast<std::uint64_t>(n->K));
+    for (auto& c : n->ch) h = mix64(h, shash_ast(Expr{c}));
+    return h;
+  }
+  if (auto n = std::dynamic_pointer_cast<LoopOutNode>(p)) {
+    std::uint64_t h = static_cast<std::uint64_t>(AstOpId::LOut);
+    h = mix64(h, static_cast<std::uint64_t>(n->J));
+    return mix64(h, shash_ast(Expr{n->loop}));
+  }
   return 0xFEEDBEEF;
 }
 
@@ -79,6 +96,8 @@ inline std::string skey_ast(const Expr& e) {
   if (auto n = std::dynamic_pointer_cast<LogNode>(p))   { k1("Log", Expr{n->a}); return os.str(); }
   if (auto n = std::dynamic_pointer_cast<SqrtNode>(p))  { k1("Sqrt",Expr{n->a}); return os.str(); }
   if (auto n = std::dynamic_pointer_cast<TanhNode>(p))  { k1("Tanh",Expr{n->a}); return os.str(); }
+  if (std::dynamic_pointer_cast<IterNode>(p))            { os<<"Iter()"; return os.str(); }
+  if (auto n = std::dynamic_pointer_cast<StateReadNode>(p)) { os<<"State("<<n->index<<")"; return os.str(); }
   if (auto n = std::dynamic_pointer_cast<AddNode>(p))   { k2("Add", Expr{n->a}, Expr{n->b}); return os.str(); }
   if (auto n = std::dynamic_pointer_cast<SubNode>(p))   { k2("Sub", Expr{n->a}, Expr{n->b}); return os.str(); }
   if (auto n = std::dynamic_pointer_cast<MulNode>(p))   { k2("Mul", Expr{n->a}, Expr{n->b}); return os.str(); }
@@ -92,6 +111,15 @@ inline std::string skey_ast(const Expr& e) {
   if (auto n = std::dynamic_pointer_cast<NeNode>(p))    { k2("Ne",  Expr{n->a}, Expr{n->b}); return os.str(); }
   if (auto n = std::dynamic_pointer_cast<IfNode>(p))    { auto q=n; os<<"If("<<skey_ast(Expr{q->c})<<","<<skey_ast(Expr{q->t})<<","<<skey_ast(Expr{q->e})<<")"; return os.str(); }
   if (auto n = std::dynamic_pointer_cast<SelectNode>(p)){ auto q=n; os<<"Sel("<<skey_ast(Expr{q->m})<<","<<skey_ast(Expr{q->t})<<","<<skey_ast(Expr{q->e})<<")"; return os.str(); }
+  if (auto n = std::dynamic_pointer_cast<LoopForNode>(p)) {
+    os<<"LFor(K="<<n->K<<";";
+    if (!n->ch.empty()) {
+      os<<skey_ast(Expr{n->ch[0]});
+      for (std::size_t i = 1; i < n->ch.size(); ++i) { os<<","<<skey_ast(Expr{n->ch[i]}); }
+    }
+    os<<")"; return os.str();
+  }
+  if (auto n = std::dynamic_pointer_cast<LoopOutNode>(p)) { os<<"LOut(J="<<n->J<<","<<skey_ast(Expr{n->loop})<<")"; return os.str(); }
   return "?";
 }
 
@@ -164,7 +192,50 @@ auto compile_cse_ast(const Expr& e, Backend& b) -> typename Backend::result_type
 
 // Convenience overload for TapeBackend
 inline int compile_cse_ast(const Expr& e, TapeBackend& b) {
-  return compile_cse_ast<TapeBackend>(e, b);
+  // Tape-specific version supporting loops via non-templated emits
+  Expr en = normalize(e);
+  AstHashMemo<TapeBackend> memo;
+  std::function<int(const Expr&)> rec = [&](const Expr& x) -> int {
+    int cached; if (memo.find(x, cached)) return cached;
+    auto p = x.n; int id = -1;
+    if (auto c = std::dynamic_pointer_cast<ConstNode>(p)) id = b.emitConst(c->value);
+    else if (auto v = std::dynamic_pointer_cast<VarNode>(p)) id = b.emitVar(v->index);
+    else if (auto n = std::dynamic_pointer_cast<NegNode>(p))   id = b.emitNeg(rec(Expr{n->a}));
+    else if (auto n = std::dynamic_pointer_cast<SinNode>(p))   id = b.emitSin(rec(Expr{n->a}));
+    else if (auto n = std::dynamic_pointer_cast<CosNode>(p))   id = b.emitCos(rec(Expr{n->a}));
+    else if (auto n = std::dynamic_pointer_cast<ExpNode>(p))   id = b.emitExp(rec(Expr{n->a}));
+    else if (auto n = std::dynamic_pointer_cast<LogNode>(p))   id = b.emitLog(rec(Expr{n->a}));
+    else if (auto n = std::dynamic_pointer_cast<SqrtNode>(p))  id = b.emitSqrt(rec(Expr{n->a}));
+    else if (auto n = std::dynamic_pointer_cast<TanhNode>(p))  id = b.emitTanh(rec(Expr{n->a}));
+    else if (auto n = std::dynamic_pointer_cast<AddNode>(p))   id = b.emitAdd(rec(Expr{n->a}), rec(Expr{n->b}));
+    else if (auto n = std::dynamic_pointer_cast<SubNode>(p))   id = b.emitSub(rec(Expr{n->a}), rec(Expr{n->b}));
+    else if (auto n = std::dynamic_pointer_cast<MulNode>(p))   id = b.emitMul(rec(Expr{n->a}), rec(Expr{n->b}));
+    else if (auto n = std::dynamic_pointer_cast<DivNode>(p))   id = b.emitDiv(rec(Expr{n->a}), rec(Expr{n->b}));
+    else if (auto n = std::dynamic_pointer_cast<PowNode>(p))   id = b.emitPow(rec(Expr{n->a}), rec(Expr{n->b}));
+#ifdef ET_ENABLE_CONTROL_FLOW
+    else if (auto n = std::dynamic_pointer_cast<LtNode>(p))    id = b.emitApply(LtOp{},  rec(Expr{n->a}), rec(Expr{n->b}));
+    else if (auto n = std::dynamic_pointer_cast<LeNode>(p))    id = b.emitApply(LeOp{},  rec(Expr{n->a}), rec(Expr{n->b}));
+    else if (auto n = std::dynamic_pointer_cast<GtNode>(p))    id = b.emitApply(GtOp{},  rec(Expr{n->a}), rec(Expr{n->b}));
+    else if (auto n = std::dynamic_pointer_cast<GeNode>(p))    id = b.emitApply(GeOp{},  rec(Expr{n->a}), rec(Expr{n->b}));
+    else if (auto n = std::dynamic_pointer_cast<EqNode>(p))    id = b.emitApply(EqOp{},  rec(Expr{n->a}), rec(Expr{n->b}));
+    else if (auto n = std::dynamic_pointer_cast<NeNode>(p))    id = b.emitApply(NeOp{},  rec(Expr{n->a}), rec(Expr{n->b}));
+    else if (auto n = std::dynamic_pointer_cast<IfNode>(p))    id = b.emitApply(IfOp{}, rec(Expr{n->c}), rec(Expr{n->t}), rec(Expr{n->e}));
+    else if (auto n = std::dynamic_pointer_cast<SelectNode>(p))id = b.emitApply(SelectOp{}, rec(Expr{n->m}), rec(Expr{n->t}), rec(Expr{n->e}));
+#endif
+    else if (auto n = std::dynamic_pointer_cast<IterNode>(p))  id = b.emitIter();
+    else if (auto n = std::dynamic_pointer_cast<StateReadNode>(p)) id = b.emitStateRead(n->index);
+    else if (auto n = std::dynamic_pointer_cast<LoopForNode>(p)) {
+      std::vector<int> chids; chids.reserve(n->ch.size());
+      for (auto& c : n->ch) chids.push_back(rec(Expr{c}));
+      id = b.emitLoopFor(n->K, chids);
+    } else if (auto n = std::dynamic_pointer_cast<LoopOutNode>(p)) {
+      int loop_id = rec(Expr{n->loop});
+      id = b.emitLoopOut(n->J, loop_id);
+    } else id = b.emitConst(0.0);
+    memo.insert(x, id);
+    return id;
+  };
+  return rec(en);
 }
 
 } // namespace et

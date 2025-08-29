@@ -121,6 +121,12 @@ if(ET_WITH_TORCH)
     target_link_libraries(13_loop_fib PRIVATE ${ET_TORCH_LIB})
     target_compile_definitions(13_loop_fib PRIVATE ET_WITH_TORCH ET_TORCH_ENABLE_MODULE_WRAPPER ET_TORCH_ENABLE_DEFINE_WRAPPER)
   endif()
+
+  # AST loops lowered to prim::Loop (Torch JIT)
+  add_executable(15_ast_torch_loop examples/15_ast_torch_loop.cpp)
+  target_link_libraries(15_ast_torch_loop PRIVATE et ${ET_TORCH_LIB})
+  target_compile_definitions(15_ast_torch_loop PRIVATE ET_WITH_TORCH)
+  target_compile_features(15_ast_torch_loop PRIVATE cxx_std_17)
 endif()
 
 ## Torch example already built above; no need to duplicate under tests
