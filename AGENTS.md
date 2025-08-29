@@ -15,7 +15,7 @@
 ## Coding Style & Naming Conventions
 - C++17; header-only; no RTTI/virtuals; prefer `constexpr` and value semantics.
 - Indent 2 spaces; same-line braces; early returns; minimal headers.
-- Files: snake_case (`compile_cse.hpp`); op tags: PascalCase `*Op` (`AddOp`).
+- Files: snake_case (e.g., `compile_cse_ast.hpp`); op tags: PascalCase `*Op` (`AddOp`).
 - Operators are constrained to ET nodes (see `expr.hpp`); do not broaden SFINAE.
 
 ## Testing & Coverage

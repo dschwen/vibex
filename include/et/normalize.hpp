@@ -1,299 +1,215 @@
 #pragma once
 #include <algorithm>
-#include <cstddef>
+#include <cmath>
 #include <cstdint>
+#include <limits>
+#include <memory>
+#include <tuple>
+#include <utility>
 #include <vector>
-#include <functional>
 
-#include "et/runtime_ast.hpp"
+#include "et/ast.hpp"
 
 namespace et {
 
-// Simple deterministic structural hash for RGraph subtrees
-inline std::uint64_t r_hash(const RGraph& g, int id) {
-  const RNode& n = g.nodes[id];
-  auto mix = [](std::uint64_t h, std::uint64_t x){
-    x ^= x >> 33; x *= 0xff51afd7ed558ccdULL;
-    x ^= x >> 33; x *= 0xc4ceb9fe1a85ec53ULL;
-    x ^= x >> 33; return h ^ (x + 0x9e3779b97f4a7c15ULL + (h<<6) + (h>>2));
-  };
-  std::uint64_t h = 1469598103934665603ULL;
-  h = mix(h, static_cast<std::uint64_t>(n.kind));
-  switch (n.kind) {
-    case NodeKind::Const: {
-      union { double d; std::uint64_t u; } u { n.cval };
-      h = mix(h, u.u);
-      break;
-    }
-    case NodeKind::Var:
-      h = mix(h, static_cast<std::uint64_t>(n.var_index));
-      break;
-    default:
-      for (int cid : n.ch) h = mix(h, r_hash(g, cid));
-      break;
+// Helpers to detect constant values
+inline bool is_const(const Expr& e, double* out = nullptr) {
+  if (!e.n) return false;
+  if (auto c = std::dynamic_pointer_cast<ConstNode>(e.n)) {
+    if (out) *out = c->value; return true;
   }
-  return h;
+  return false;
+}
+inline bool is_zero(const Expr& e) { double v; return is_const(e, &v) && v == 0.0; }
+inline bool is_one (const Expr& e) { double v; return is_const(e, &v) && v == 1.0; }
+
+// Canonical ordering key: (kind, address) where kind groups similar nodes.
+inline int kind_rank(const Expr& e) {
+  auto p = e.n;
+  if (std::dynamic_pointer_cast<ConstNode>(p)) return 0;
+  if (std::dynamic_pointer_cast<VarNode>(p))   return 1;
+  if (std::dynamic_pointer_cast<NegNode>(p))   return 2;
+  if (std::dynamic_pointer_cast<SinNode>(p))   return 3;
+  if (std::dynamic_pointer_cast<CosNode>(p))   return 4;
+  if (std::dynamic_pointer_cast<ExpNode>(p))   return 5;
+  if (std::dynamic_pointer_cast<LogNode>(p))   return 6;
+  if (std::dynamic_pointer_cast<SqrtNode>(p))  return 7;
+  if (std::dynamic_pointer_cast<TanhNode>(p))  return 8;
+  if (std::dynamic_pointer_cast<AddNode>(p))   return 9;
+  if (std::dynamic_pointer_cast<SubNode>(p))   return 10;
+  if (std::dynamic_pointer_cast<MulNode>(p))   return 11;
+  if (std::dynamic_pointer_cast<DivNode>(p))   return 12;
+  if (std::dynamic_pointer_cast<PowNode>(p))   return 13;
+  if (std::dynamic_pointer_cast<LtNode>(p))    return 14;
+  if (std::dynamic_pointer_cast<LeNode>(p))    return 15;
+  if (std::dynamic_pointer_cast<GtNode>(p))    return 16;
+  if (std::dynamic_pointer_cast<GeNode>(p))    return 17;
+  if (std::dynamic_pointer_cast<EqNode>(p))    return 18;
+  if (std::dynamic_pointer_cast<NeNode>(p))    return 19;
+  if (std::dynamic_pointer_cast<NotNode>(p))   return 20;
+  if (std::dynamic_pointer_cast<IfNode>(p))    return 21;
+  if (std::dynamic_pointer_cast<SelectNode>(p))return 22;
+  if (std::dynamic_pointer_cast<IterNode>(p))  return 23;
+  if (std::dynamic_pointer_cast<StateReadNode>(p)) return 24;
+  if (std::dynamic_pointer_cast<LoopForNode>(p)) return 25;
+  if (std::dynamic_pointer_cast<LoopOutNode>(p)) return 26;
+  return 100;
 }
 
-struct ChildKey {
-  int id;
-  NodeKind kind;
-  std::uint64_t h;
-};
-
-inline bool child_less(const ChildKey& a, const ChildKey& b) {
-  auto rank = [](NodeKind k) {
-    switch (k) {
-      case NodeKind::Const: return 0;
-      case NodeKind::Var:   return 1;
-      default:              return 2 + static_cast<int>(k);
-    }
-  };
-  int ra = rank(a.kind);
-  int rb = rank(b.kind);
-  if (ra != rb) return ra < rb;
-  if (a.h != b.h) return a.h < b.h;
-  return a.id < b.id;
+inline auto order_key(const Expr& e) {
+  return std::make_pair(kind_rank(e), reinterpret_cast<std::uintptr_t>(e.n.get()));
 }
 
-// Normalize recursively: returns a new graph with canonical Add/Mul nodes
-inline RGraph normalize(const RGraph& src) {
-  RGraph dst;
-  dst.nodes.reserve(src.nodes.size());
+// Forward decl
+Expr normalize(const Expr& e);
 
-  // Memoized DFS
-  std::vector<int> memo(src.nodes.size(), -1);
-  std::function<int(int)> norm = [&](int id) -> int {
-    if (memo[id] != -1) return memo[id];
-    const RNode& n = src.nodes[id];
-    auto add_node = [&](RNode nn){ return memo[id] = dst.add(std::move(nn)); };
-
-    // Leaves
-    if (n.kind == NodeKind::Const) {
-      RNode nn; nn.kind = NodeKind::Const; nn.cval = n.cval; return add_node(std::move(nn));
-    }
-    if (n.kind == NodeKind::Var) {
-      RNode nn; nn.kind = NodeKind::Var; nn.var_index = n.var_index; return add_node(std::move(nn));
-    }
-
-    // Recurse children first
-    std::vector<int> ch; ch.reserve(n.ch.size());
-    for (int cid : n.ch) ch.push_back(norm(cid));
-
-    auto build_variadic = [&](NodeKind kind, const std::vector<int>& flat) {
-      RNode nn; nn.kind = kind; nn.ch = flat; return nn; };
-
-    if (n.kind == NodeKind::Add) {
-      std::vector<int> flat; flat.reserve(ch.size());
-      double csum = 0.0;
-      for (int cid : ch) {
-        const RNode& c = dst.nodes[cid];
-        if (c.kind == NodeKind::Add) {
-          for (int gcid : c.ch) flat.push_back(gcid);
-        } else if (c.kind == NodeKind::Const) {
-          csum += c.cval;
-        } else {
-          flat.push_back(cid);
-        }
-      }
-      // Add constant if non-zero
-      if (csum != 0.0) {
-        RNode cn; cn.kind = NodeKind::Const; cn.cval = csum; flat.push_back(dst.add(std::move(cn)));
-      }
-      // Remove zeros that may have been introduced elsewhere: already handled
-      if (flat.empty()) {
-        RNode z; z.kind = NodeKind::Const; z.cval = 0.0; return add_node(std::move(z));
-      }
-      if (flat.size() == 1) return memo[id] = flat[0];
-      std::vector<ChildKey> keys; keys.reserve(flat.size());
-      for (int fid : flat) keys.push_back(ChildKey{fid, dst.nodes[fid].kind, r_hash(dst, fid)});
-      std::sort(keys.begin(), keys.end(), child_less);
-      std::vector<int> sorted; sorted.reserve(keys.size());
-      for (auto& k : keys) sorted.push_back(k.id);
-      return add_node(build_variadic(NodeKind::Add, sorted));
-    }
-
-    if (n.kind == NodeKind::Mul) {
-      std::vector<int> flat; flat.reserve(ch.size());
-      double cprod = 1.0;
-      for (int cid : ch) {
-        const RNode& c = dst.nodes[cid];
-        if (c.kind == NodeKind::Mul) {
-          for (int gcid : c.ch) flat.push_back(gcid);
-        } else if (c.kind == NodeKind::Const) {
-          if (c.cval == 0.0) { // annihilator
-            RNode z; z.kind = NodeKind::Const; z.cval = 0.0; return add_node(std::move(z));
-          }
-          cprod *= c.cval;
-        } else {
-          flat.push_back(cid);
-        }
-      }
-      if (cprod != 1.0) {
-        RNode cn; cn.kind = NodeKind::Const; cn.cval = cprod; flat.push_back(dst.add(std::move(cn)));
-      }
-      // Drop multiplicative identity 1 when other children exist
-      // (no explicit 1s present except via cprod, handled above)
-      if (flat.empty()) {
-        RNode one; one.kind = NodeKind::Const; one.cval = 1.0; return add_node(std::move(one));
-      }
-      if (flat.size() == 1) return memo[id] = flat[0];
-      std::vector<ChildKey> keys; keys.reserve(flat.size());
-      for (int fid : flat) keys.push_back(ChildKey{fid, dst.nodes[fid].kind, r_hash(dst, fid)});
-      std::sort(keys.begin(), keys.end(), child_less);
-      std::vector<int> sorted; sorted.reserve(keys.size());
-      for (auto& k : keys) sorted.push_back(k.id);
-      return add_node(build_variadic(NodeKind::Mul, sorted));
-    }
-
-    // Optional neutral simplifications for Sub/Div
-    if (n.kind == NodeKind::Sub) {
-      // Normalize subtraction into addition of a negated RHS: a - b -> Add(a, Neg(b))
-      // This unifies sum-like structures for AC normalization.
-      const RNode& b = dst.nodes[ch[1]];
-      std::vector<int> terms; terms.reserve(2);
-      terms.push_back(ch[0]);
-      // Build -b with simple folding
-      if (b.kind == NodeKind::Const) {
-        RNode cn; cn.kind = NodeKind::Const; cn.cval = -b.cval; terms.push_back(dst.add(std::move(cn)));
-      } else if (b.kind == NodeKind::Neg) {
-        // a - (-x) => a + x
-        terms.push_back(b.ch[0]);
-      } else {
-        RNode nb; nb.kind = NodeKind::Neg; nb.ch = { ch[1] }; terms.push_back(dst.add(std::move(nb)));
-      }
-      // Now normalize as an Add over 'terms'
-      double csum = 0.0;
-      std::vector<int> flat; flat.reserve(terms.size());
-      for (int cid : terms) {
-        const RNode& c = dst.nodes[cid];
-        if (c.kind == NodeKind::Add) {
-          for (int gcid : c.ch) flat.push_back(gcid);
-        } else if (c.kind == NodeKind::Const) {
-          csum += c.cval;
-        } else {
-          flat.push_back(cid);
-        }
-      }
-      if (csum != 0.0) { RNode cn; cn.kind = NodeKind::Const; cn.cval = csum; flat.push_back(dst.add(std::move(cn))); }
-      if (flat.empty()) { RNode z; z.kind = NodeKind::Const; z.cval = 0.0; return add_node(std::move(z)); }
-      if (flat.size() == 1) return memo[id] = flat[0];
-      std::vector<ChildKey> keys; keys.reserve(flat.size());
-      for (int fid : flat) keys.push_back(ChildKey{fid, dst.nodes[fid].kind, r_hash(dst, fid)});
-      std::sort(keys.begin(), keys.end(), child_less);
-      std::vector<int> sorted; sorted.reserve(keys.size());
-      for (auto& k : keys) sorted.push_back(k.id);
-      RNode nn; nn.kind = NodeKind::Add; nn.ch = std::move(sorted); return add_node(std::move(nn));
-    }
-    if (n.kind == NodeKind::Div) {
-      const RNode& a = dst.nodes[ch[0]];
-      const RNode& b = dst.nodes[ch[1]];
-      if (a.kind == NodeKind::Const && a.cval == 0.0) { RNode z; z.kind = NodeKind::Const; z.cval = 0.0; return add_node(std::move(z)); }
-      if (b.kind == NodeKind::Const && b.cval == 1.0) return memo[id] = ch[0];
-      if (r_equal(dst, ch[0], ch[1])) { RNode one; one.kind = NodeKind::Const; one.cval = 1.0; return add_node(std::move(one)); }
-      RNode nn; nn.kind = NodeKind::Div; nn.ch = ch; return add_node(std::move(nn));
-    }
-
-    // Unary and other ops: rebuild with normalized children
-    if (n.kind == NodeKind::Neg || n.kind == NodeKind::Sin || n.kind == NodeKind::Cos ||
-        n.kind == NodeKind::Exp || n.kind == NodeKind::Log || n.kind == NodeKind::Sqrt || n.kind == NodeKind::Tanh) {
-      if (n.kind == NodeKind::Neg) {
-        const RNode& a = dst.nodes[ch[0]];
-        if (a.kind == NodeKind::Const) { RNode cn; cn.kind = NodeKind::Const; cn.cval = -a.cval; return add_node(std::move(cn)); }
-        if (a.kind == NodeKind::Neg)  { return memo[id] = a.ch[0]; }
-      }
-      RNode nn; nn.kind = n.kind; nn.ch = ch; return add_node(std::move(nn));
-    }
-
-    // Fallback
-    RNode nn; nn.kind = n.kind; nn.ch = ch; return add_node(std::move(nn));
-  };
-
-  dst.root = norm(src.root);
-  return dst;
+inline void gather_add(const Expr& e, std::vector<Expr>& out) {
+  if (auto n = std::dynamic_pointer_cast<AddNode>(e.n)) {
+    gather_add(Expr{n->a}, out);
+    gather_add(Expr{n->b}, out);
+  } else {
+    out.push_back(e);
+  }
+}
+inline void gather_mul(const Expr& e, std::vector<Expr>& out) {
+  if (auto n = std::dynamic_pointer_cast<MulNode>(e.n)) {
+    gather_mul(Expr{n->a}, out);
+    gather_mul(Expr{n->b}, out);
+  } else {
+    out.push_back(e);
+  }
 }
 
-// Optional pretty-print denormalization:
-// - If Add has exactly 2 terms and matches Add(a,Neg(b)) -> Sub(a,b).
-// - If Add has N terms where N-1 are negated and 1 is not, convert to Sub(pos, Add(others_stripped)).
-// - If all N terms are negated, pull out a Neg: Neg(Add(stripped_terms)).
-// - Also handles negative constants as negated terms.
-inline RGraph denormalize_sub(const RGraph& src) {
-  RGraph dst;
-  dst.nodes.reserve(src.nodes.size());
-  std::vector<int> memo(src.nodes.size(), -1);
-  std::function<int(int)> rec = [&](int id) -> int {
-    if (memo[id] != -1) return memo[id];
-    const RNode& n = src.nodes[id];
-    auto add_node = [&](RNode nn){ return memo[id] = dst.add(std::move(nn)); };
+inline Expr make_add(std::vector<Expr> terms) {
+  if (terms.empty()) return lit(0.0);
+  Expr acc = terms[0];
+  for (std::size_t i = 1; i < terms.size(); ++i) acc = acc + terms[i];
+  return acc;
+}
+inline Expr make_mul(std::vector<Expr> terms) {
+  if (terms.empty()) return lit(1.0);
+  Expr acc = terms[0];
+  for (std::size_t i = 1; i < terms.size(); ++i) acc = acc * terms[i];
+  return acc;
+}
 
-    // Leaves
-    if (n.kind == NodeKind::Const) { RNode nn; nn.kind = NodeKind::Const; nn.cval = n.cval; return add_node(std::move(nn)); }
-    if (n.kind == NodeKind::Var)   { RNode nn; nn.kind = NodeKind::Var; nn.var_index = n.var_index; return add_node(std::move(nn)); }
+inline Expr normalize_add(const std::vector<Expr>& xs) {
+  std::vector<Expr> terms; terms.reserve(xs.size());
+  double csum = 0.0; bool has_csum = false;
+  for (auto& t0 : xs) {
+    Expr t = normalize(t0);
+    if (is_const(t)) { double v; is_const(t, &v); csum += v; has_csum = true; continue; }
+    if (std::dynamic_pointer_cast<AddNode>(t.n)) gather_add(t, terms);
+    else terms.push_back(t);
+  }
+  std::vector<Expr> filtered; filtered.reserve(terms.size()+1);
+  for (auto& t : terms) if (!is_zero(t)) filtered.push_back(t);
+  if (has_csum && (csum != 0.0 || filtered.empty())) filtered.push_back(lit(csum));
+  std::sort(filtered.begin(), filtered.end(), [&](const Expr& a, const Expr& b){ return order_key(a) < order_key(b); });
+  return make_add(filtered);
+}
 
-    // Recurse children
-    std::vector<int> ch; ch.reserve(n.ch.size());
-    for (int cid : n.ch) ch.push_back(rec(cid));
+inline Expr normalize_mul(const std::vector<Expr>& xs) {
+  std::vector<Expr> terms; terms.reserve(xs.size());
+  double cprod = 1.0; bool has_cprod = false;
+  for (auto& t0 : xs) {
+    Expr t = normalize(t0);
+    if (is_const(t)) { double v; is_const(t, &v); cprod *= v; has_cprod = true; continue; }
+    if (std::dynamic_pointer_cast<MulNode>(t.n)) gather_mul(t, terms);
+    else terms.push_back(t);
+  }
+  if (has_cprod) {
+    if (cprod == 0.0) return lit(0.0);
+  }
+  std::vector<Expr> filtered; filtered.reserve(terms.size()+1);
+  for (auto& t : terms) if (!is_one(t)) filtered.push_back(t);
+  if (has_cprod && (cprod != 1.0 || filtered.empty())) filtered.push_back(lit(cprod));
+  std::sort(filtered.begin(), filtered.end(), [&](const Expr& a, const Expr& b){ return order_key(a) < order_key(b); });
+  return make_mul(filtered);
+}
 
-    if (n.kind == NodeKind::Add) {
-      // Classify children as positive vs negated; strip neg for the latter.
-      std::vector<int> pos; pos.reserve(ch.size());
-      std::vector<int> neg; neg.reserve(ch.size());
-      for (int cid : ch) {
-        const RNode& c = dst.nodes[cid];
-        if (c.kind == NodeKind::Neg) {
-          neg.push_back(c.ch[0]);
-        } else if (c.kind == NodeKind::Const && c.cval < 0.0) {
-          RNode cp; cp.kind = NodeKind::Const; cp.cval = -c.cval; neg.push_back(dst.add(std::move(cp)));
-        } else {
-          pos.push_back(cid);
-        }
-      }
-      auto make_add = [&](const std::vector<int>& items) {
-        if (items.empty()) { RNode z; z.kind = NodeKind::Const; z.cval = 0.0; return dst.add(std::move(z)); }
-        if (items.size() == 1) return items[0];
-        RNode ad; ad.kind = NodeKind::Add; ad.ch = items; return dst.add(std::move(ad));
-      };
-      auto make_sub = [&](int lhs_id, int rhs_id) {
-        RNode nn; nn.kind = NodeKind::Sub; nn.ch = { lhs_id, rhs_id }; return add_node(std::move(nn));
-      };
-      // All neg: Neg(Add(stripped))
-      if (pos.empty() && !neg.empty()) {
-        int inner = make_add(neg);
-        RNode nn; nn.kind = NodeKind::Neg; nn.ch = { inner }; return add_node(std::move(nn));
-      }
+inline Expr normalize(const Expr& e) {
+  if (!e.n) return e;
+  if (std::dynamic_pointer_cast<ConstNode>(e.n)) return e;
+  if (std::dynamic_pointer_cast<VarNode>(e.n))   return e;
 
-      // Exactly 2 terms: handle classic patterns
-      if (ch.size() == 2) {
-        const RNode& a = dst.nodes[ch[0]];
-        const RNode& b = dst.nodes[ch[1]];
-        if (b.kind == NodeKind::Neg) return make_sub(ch[0], b.ch[0]);
-        if (a.kind == NodeKind::Neg) return make_sub(ch[1], a.ch[0]);
-        if (b.kind == NodeKind::Const && b.cval < 0.0) {
-          RNode cp; cp.kind = NodeKind::Const; cp.cval = -b.cval; int pid = dst.add(std::move(cp));
-          return make_sub(ch[0], pid);
-        }
-        if (a.kind == NodeKind::Const && a.cval < 0.0) {
-          RNode cp; cp.kind = NodeKind::Const; cp.cval = -a.cval; int pid = dst.add(std::move(cp));
-          return make_sub(ch[1], pid);
-        }
-        // Leave as Add when no special case
-        RNode nn; nn.kind = NodeKind::Add; nn.ch = ch; return add_node(std::move(nn));
-      }
-      // N terms with N-1 neg: Sub(only_pos, Add(all_neg_stripped))
-      if (pos.size() == 1 && pos.size() + neg.size() == ch.size() && !neg.empty()) {
-        int rhs = make_add(neg);
-        return make_sub(pos[0], rhs);
-      }
-      // Otherwise, rebuild Add as-is
-      RNode nn; nn.kind = NodeKind::Add; nn.ch = ch; return add_node(std::move(nn));
-    }
+  if (auto n = std::dynamic_pointer_cast<NegNode>(e.n)) {
+    Expr a = normalize(Expr{n->a});
+    double v; if (is_const(a, &v)) return lit(-v);
+    return -a;
+  }
+  if (auto n = std::dynamic_pointer_cast<SinNode>(e.n)) { Expr a = normalize(Expr{n->a}); double v; if (is_const(a, &v)) return lit(std::sin(v)); return sin(a); }
+  if (auto n = std::dynamic_pointer_cast<CosNode>(e.n)) { Expr a = normalize(Expr{n->a}); double v; if (is_const(a, &v)) return lit(std::cos(v)); return cos(a); }
+  if (auto n = std::dynamic_pointer_cast<ExpNode>(e.n)) { Expr a = normalize(Expr{n->a}); double v; if (is_const(a, &v)) return lit(std::exp(v)); return exp(a); }
+  if (auto n = std::dynamic_pointer_cast<LogNode>(e.n)) { Expr a = normalize(Expr{n->a}); double v; if (is_const(a, &v)) return lit(std::log(v)); return log(a); }
+  if (auto n = std::dynamic_pointer_cast<SqrtNode>(e.n)){ Expr a = normalize(Expr{n->a}); double v; if (is_const(a, &v)) return lit(std::sqrt(v)); return sqrt(a); }
+  if (auto n = std::dynamic_pointer_cast<TanhNode>(e.n)){ Expr a = normalize(Expr{n->a}); double v; if (is_const(a, &v)) return lit(std::tanh(v)); return tanh(a); }
+  if (auto n = std::dynamic_pointer_cast<NotNode>(e.n)) {
+    Expr a = normalize(Expr{n->a}); double v; if (is_const(a, &v)) return lit(v == 0.0 ? 1.0 : 0.0); return Not(a);
+  }
 
-    // Generic rebuild
-    RNode nn; nn.kind = n.kind; nn.ch = ch; nn.cval = n.cval; nn.var_index = n.var_index; return add_node(std::move(nn));
-  };
-  dst.root = rec(src.root);
-  return dst;
+  if (auto n = std::dynamic_pointer_cast<AddNode>(e.n)) {
+    std::vector<Expr> xs; xs.reserve(2); xs.push_back(Expr{n->a}); xs.push_back(Expr{n->b});
+    return normalize_add(xs);
+  }
+  if (auto n = std::dynamic_pointer_cast<SubNode>(e.n)) {
+    Expr a = normalize(Expr{n->a}); Expr b = normalize(Expr{n->b});
+    if (is_const(a) && is_const(b)) { double va,vb; is_const(a,&va); is_const(b,&vb); return lit(va - vb); }
+    if (is_zero(b)) return a;
+    return a + (-b);
+  }
+  if (auto n = std::dynamic_pointer_cast<MulNode>(e.n)) {
+    std::vector<Expr> xs; xs.reserve(2); xs.push_back(Expr{n->a}); xs.push_back(Expr{n->b});
+    return normalize_mul(xs);
+  }
+  if (auto n = std::dynamic_pointer_cast<DivNode>(e.n)) {
+    Expr a = normalize(Expr{n->a}); Expr b = normalize(Expr{n->b});
+    if (is_const(a) && is_const(b)) { double va,vb; is_const(a,&va); is_const(b,&vb); return lit(va / vb); }
+    if (is_zero(a)) return lit(0.0);
+    if (is_one(b)) return a;
+    return a / b;
+  }
+  if (auto n = std::dynamic_pointer_cast<PowNode>(e.n)) {
+    Expr a = normalize(Expr{n->a}); Expr b = normalize(Expr{n->b});
+    if (is_const(a) && is_const(b)) { double va,vb; is_const(a,&va); is_const(b,&vb); return lit(std::pow(va, vb)); }
+    if (is_one(b)) return a;
+    double bv; if (is_const(b, &bv) && bv == 0.0) return lit(1.0);
+    return pow(a, b);
+  }
+
+  if (auto n = std::dynamic_pointer_cast<LtNode>(e.n)) { Expr a = normalize(Expr{n->a}); Expr b = normalize(Expr{n->b}); double va,vb; if (is_const(a,&va)&&is_const(b,&vb)) return lit(va<vb?1.0:0.0); return a < b; }
+  if (auto n = std::dynamic_pointer_cast<LeNode>(e.n)) { Expr a = normalize(Expr{n->a}); Expr b = normalize(Expr{n->b}); double va,vb; if (is_const(a,&va)&&is_const(b,&vb)) return lit(va<=vb?1.0:0.0); return a <= b; }
+  if (auto n = std::dynamic_pointer_cast<GtNode>(e.n)) { Expr a = normalize(Expr{n->a}); Expr b = normalize(Expr{n->b}); double va,vb; if (is_const(a,&va)&&is_const(b,&vb)) return lit(va>vb?1.0:0.0); return a > b; }
+  if (auto n = std::dynamic_pointer_cast<GeNode>(e.n)) { Expr a = normalize(Expr{n->a}); Expr b = normalize(Expr{n->b}); double va,vb; if (is_const(a,&va)&&is_const(b,&vb)) return lit(va>=vb?1.0:0.0); return a >= b; }
+  if (auto n = std::dynamic_pointer_cast<EqNode>(e.n)) { Expr a = normalize(Expr{n->a}); Expr b = normalize(Expr{n->b}); double va,vb; if (is_const(a,&va)&&is_const(b,&vb)) return lit(va==vb?1.0:0.0); return a == b; }
+  if (auto n = std::dynamic_pointer_cast<NeNode>(e.n)) { Expr a = normalize(Expr{n->a}); Expr b = normalize(Expr{n->b}); double va,vb; if (is_const(a,&va)&&is_const(b,&vb)) return lit(va!=vb?1.0:0.0); return a != b; }
+
+  if (auto n = std::dynamic_pointer_cast<IfNode>(e.n)) {
+    Expr c = normalize(Expr{n->c}); Expr t = normalize(Expr{n->t}); Expr el = normalize(Expr{n->e});
+    double vc; if (is_const(c,&vc)) return (vc != 0.0) ? t : el;
+    return If(c, t, el);
+  }
+  if (auto n = std::dynamic_pointer_cast<SelectNode>(e.n)) {
+    Expr m = normalize(Expr{n->m}); Expr t = normalize(Expr{n->t}); Expr el = normalize(Expr{n->e});
+    double vm; if (is_const(m,&vm)) return (vm != 0.0) ? t : el;
+    return Select(m, t, el);
+  }
+
+  if (auto n = std::dynamic_pointer_cast<IterNode>(e.n)) { return e; }
+  if (auto n = std::dynamic_pointer_cast<StateReadNode>(e.n)) { return e; }
+  if (auto n = std::dynamic_pointer_cast<LoopForNode>(e.n)) {
+    std::vector<Expr> ch; ch.reserve(n->ch.size());
+    for (auto& c : n->ch) ch.push_back(normalize(Expr{c}));
+    std::vector<std::shared_ptr<Node>> chp; chp.reserve(ch.size());
+    for (auto& ce : ch) chp.push_back(ce.n);
+    return Expr{ std::make_shared<LoopForNode>(n->K, std::move(chp)) };
+  }
+  if (auto n = std::dynamic_pointer_cast<LoopOutNode>(e.n)) {
+    Expr l = normalize(Expr{n->loop});
+    return Expr{ std::make_shared<LoopOutNode>(n->J, l.n) };
+  }
+
+  return e;
 }
 
 } // namespace et

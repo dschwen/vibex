@@ -1,22 +1,20 @@
 #include <cassert>
 #include <vector>
 
-#include "et/expr.hpp"
-#include "et/tape_backend.hpp"
+#include "et/ast.hpp"
+#include "et/compile.hpp"
 #include "et/compile_cse.hpp"
-// Avoid including compile_hash_cse.hpp here to prevent to_key_stream ODR conflicts
+#include "et/tape_backend.hpp"
 
 using namespace et;
 
-template <class Expr>
 static int compile_no_cse_nodes(const Expr& e) {
   TapeBackend tb(4);
-  auto root = compile(e, tb);
+  auto root = compile_runtime(e, tb);
   tb.tape.output_id = root;
   return (int)tb.tape.nodes.size();
 }
 
-template <class Expr>
 static int compile_cse_nodes(const Expr& e) {
   TapeBackend tb(4);
   auto root = compile_cse(e, tb);
@@ -27,8 +25,8 @@ static int compile_cse_nodes(const Expr& e) {
 int main() {
   // 1) Simple duplicate: sin(x) + sin(x)
   {
-    auto [x] = Vars<double, 1>();
-    auto h = sin(x) + sin(x);
+    auto x = var(0);
+    Expr h = sin(x) + sin(x);
     int n_no = compile_no_cse_nodes(h);
     int n_cse = compile_cse_nodes(h);
     // No CSE: Var, Sin, Var, Sin, Add => 5
@@ -39,9 +37,9 @@ int main() {
 
   // 2) Larger shared subtree: (x*y + sin(x)) + (x*y + sin(x))
   {
-    auto [x,y] = Vars<double, 2>();
-    auto sub = x*y + sin(x);
-    auto f = sub + sub;
+    auto x = var(0), y = var(1);
+    Expr sub = x*y + sin(x);
+    Expr f = sub + sub;
     int n_no = compile_no_cse_nodes(f);
     int n_cse = compile_cse_nodes(f);
     // No CSE: Var0, Var1, Mul, Var0, Sin, Add, Var0, Var1, Mul, Var0, Sin, Add, Add = 13
@@ -52,9 +50,9 @@ int main() {
 
   // 3) Mixed with constants: exp(x) + exp(x) + 2 + 2
   {
-    auto [x] = Vars<double, 1>();
-    auto two = lit(2.0);
-    auto f = exp(x) + exp(x) + two + two;
+    auto x = var(0);
+    Expr two = lit(2.0);
+    Expr f = exp(x) + exp(x) + two + two;
     int n_no = compile_no_cse_nodes(f);
     int n_cse = compile_cse_nodes(f);
     // No CSE: Var, Exp, Var, Exp, Const, Const, Add, Add, Add = 9

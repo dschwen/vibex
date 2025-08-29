@@ -76,9 +76,301 @@ template <class Op, class... Ch> struct is_node<Apply<Op,Ch...>> : std::true_typ
 template <class T>
 using is_node_t = is_node<std::decay_t<T>>;
 
+// Var type detection with compile-time index
+template <class T> struct is_var : std::false_type {};
+template <class T, std::size_t I> struct is_var<Var<T,I>> : std::true_type { static constexpr std::size_t index = I; using value_type = T; };
+
 //===========================
 // Ops (tags) and sugar
 //===========================
+// Optional control-flow and selection operators
+#ifdef ET_ENABLE_CONTROL_FLOW
+// Forward declarations for arithmetic ops used in LoopForOp::d
+struct AddOp; struct SubOp;
+// --- Comparisons and logical not (bool-valued) ---
+struct LtOp {
+  static constexpr std::size_t arity = 2;
+  template <class A, class B> static constexpr bool eval(A&& a, B&& b) { return std::forward<A>(a) < std::forward<B>(b); }
+  template <std::size_t I, class ANode, class BNode>
+  static auto d(const ANode&, const BNode&) {
+    using T = value_type_of_t<ANode>;
+    return lit(static_cast<T>(0));
+  }
+};
+struct LeOp {
+  static constexpr std::size_t arity = 2;
+  template <class A, class B> static constexpr bool eval(A&& a, B&& b) { return std::forward<A>(a) <= std::forward<B>(b); }
+  template <std::size_t I, class ANode, class BNode>
+  static auto d(const ANode&, const BNode&) {
+    using T = value_type_of_t<ANode>;
+    return lit(static_cast<T>(0));
+  }
+};
+struct GtOp {
+  static constexpr std::size_t arity = 2;
+  template <class A, class B> static constexpr bool eval(A&& a, B&& b) { return std::forward<A>(a) > std::forward<B>(b); }
+  template <std::size_t I, class ANode, class BNode>
+  static auto d(const ANode&, const BNode&) {
+    using T = value_type_of_t<ANode>;
+    return lit(static_cast<T>(0));
+  }
+};
+struct GeOp {
+  static constexpr std::size_t arity = 2;
+  template <class A, class B> static constexpr bool eval(A&& a, B&& b) { return std::forward<A>(a) >= std::forward<B>(b); }
+  template <std::size_t I, class ANode, class BNode>
+  static auto d(const ANode&, const BNode&) {
+    using T = value_type_of_t<ANode>;
+    return lit(static_cast<T>(0));
+  }
+};
+struct EqOp {
+  static constexpr std::size_t arity = 2;
+  template <class A, class B> static constexpr bool eval(A&& a, B&& b) { return std::forward<A>(a) == std::forward<B>(b); }
+  template <std::size_t I, class ANode, class BNode>
+  static auto d(const ANode&, const BNode&) {
+    using T = value_type_of_t<ANode>;
+    return lit(static_cast<T>(0));
+  }
+};
+struct NeOp {
+  static constexpr std::size_t arity = 2;
+  template <class A, class B> static constexpr bool eval(A&& a, B&& b) { return std::forward<A>(a) != std::forward<B>(b); }
+  template <std::size_t I, class ANode, class BNode>
+  static auto d(const ANode&, const BNode&) {
+    using T = value_type_of_t<ANode>;
+    return lit(static_cast<T>(0));
+  }
+};
+struct NotOp {
+  static constexpr std::size_t arity = 1;
+  template <class A> static constexpr bool eval(A&& a) { return !static_cast<bool>(std::forward<A>(a)); }
+  template <std::size_t I, class X>
+  static auto d(const X&) {
+    using T = value_type_of_t<X>;
+    return lit(static_cast<T>(0));
+  }
+};
+
+struct IfOp {
+  static constexpr std::size_t arity = 3;
+  template <class C, class A, class B>
+  static constexpr auto eval(C&& c, A&& a, B&& b)
+  -> decltype((c ? std::forward<A>(a) : std::forward<B>(b))) { return c ? std::forward<A>(a) : std::forward<B>(b); }
+  template <std::size_t I, class CNode, class TNode, class ENode>
+  static auto d(const CNode& c, const TNode& t, const ENode& e) {
+    // Treat condition as non-differentiable selector; mirror structure
+    return Apply<IfOp,
+                 CNode,
+                 decltype(diff(t, std::integral_constant<std::size_t,I>{})),
+                 decltype(diff(e, std::integral_constant<std::size_t,I>{}))>
+           ( c,
+             diff(t, std::integral_constant<std::size_t,I>{}),
+             diff(e, std::integral_constant<std::size_t,I>{}) );
+  }
+};
+struct SelectOp {
+  static constexpr std::size_t arity = 3;
+  template <class M, class A, class B>
+  static constexpr auto eval(M&& m, A&& a, B&& b)
+  -> decltype((m ? std::forward<A>(a) : std::forward<B>(b))) { return m ? std::forward<A>(a) : std::forward<B>(b); }
+  template <std::size_t I, class MNode, class TNode, class ENode>
+  static auto d(const MNode& m, const TNode& t, const ENode& e) {
+    // Mask is non-diff; elementwise select on derivatives
+    return Apply<SelectOp,
+                 MNode,
+                 decltype(diff(t, std::integral_constant<std::size_t,I>{})),
+                 decltype(diff(e, std::integral_constant<std::size_t,I>{}))>
+           ( m,
+             diff(t, std::integral_constant<std::size_t,I>{}),
+             diff(e, std::integral_constant<std::size_t,I>{}) );
+  }
+};
+
+// ----------------
+// Loop placeholders
+// ----------------
+// Iteration index (0-based) – only meaningful inside loops; eval() returns 0 in scalar eval
+struct IterOp {
+  static constexpr std::size_t arity = 0;
+  static constexpr std::size_t returns_index = 1;
+  template <class... Dummy>
+  static constexpr std::size_t eval(Dummy&&...) { return 0u; }
+  template <std::size_t I>
+  static auto d() { return lit(0.0); }
+};
+
+// Forward declare StateGrad placeholder used during symbolic differentiation
+template <std::size_t SIndex> struct StateGradOp;
+
+// Loop-carried state read by index – only meaningful inside loops; eval() returns 0 in scalar eval
+template <std::size_t SIndex>
+struct StateOp {
+  static constexpr std::size_t arity = 0;
+  static constexpr std::size_t state_index = SIndex;
+  template <class... Dummy>
+  static constexpr double eval(Dummy&&...) { return 0.0; }
+  template <std::size_t I>
+  static auto d() { return Apply<StateGradOp<SIndex>>{}; }
+};
+
+// Placeholder for derivative wrt loop state — only appears during symbolic diff;
+// we immediately replace it with State<I> when constructing the derivative loop.
+template <std::size_t SIndex>
+struct StateGradOp {
+  static constexpr std::size_t arity = 0;
+  template <class... Dummy>
+  static constexpr double eval(Dummy&&...) { return 0.0; }
+  template <std::size_t I>
+  static auto d() { return lit(0.0); }
+};
+
+// General ForN loop over K carried states. Children: [N, inits..., nexts...]
+template <std::size_t K>
+struct LoopForOp {
+  static constexpr std::size_t arity = 1 + 2*K;
+  template <class... Args>
+  static constexpr double eval(Args&&...) { return 0.0; }
+  template <class X>
+  static auto zero_like(const X&) {
+    using T = value_type_of_t<X>;
+    return lit(static_cast<T>(0));
+  }
+  // Replace StateGrad<I> placeholders with State<I> inside an expression tree
+  // Replacement: only defined for Var/Const/Apply and StateGrad
+  template <std::size_t J>
+  static auto replace_sgrad(const Apply<StateGradOp<J>>&) { return Apply<StateOp<J>>{}; }
+  template <class Op, class... Ch>
+  static auto replace_sgrad(const Apply<Op,Ch...>& a) {
+    return std::apply([&](const auto&... c){
+      return Apply<Op, decltype(replace_sgrad(c))...>( replace_sgrad(c)... );
+    }, a.ch);
+  }
+  template <class T, std::size_t IVar>
+  static auto replace_sgrad(const Var<T,IVar>& v) { return v; }
+  template <class T>
+  static auto replace_sgrad(const Const<T>& c) { return c; }
+
+  // Strip StateGrad placeholders to zero (keep only the pure-input derivative "b" part)
+  // Stripping: only defined for Var/Const/Apply and StateGrad
+  template <std::size_t J>
+  static auto strip_sgrad(const Apply<StateGradOp<J>>&) { return lit(0.0); }
+  template <class Op, class... Ch>
+  static auto strip_sgrad(const Apply<Op,Ch...>& a) {
+    return std::apply([&](const auto&... c){
+      return Apply<Op, decltype(strip_sgrad(c))...>( strip_sgrad(c)... );
+    }, a.ch);
+  }
+  template <class T, std::size_t IVar>
+  static auto strip_sgrad(const Var<T,IVar>& v) { return v; }
+  template <class T>
+  static auto strip_sgrad(const Const<T>& c) { return c; }
+
+  // Trait: does an expression subtree contain any StateGradOp<?>
+  template <class E> struct contains_sgrad : std::false_type {};
+  template <std::size_t J> struct contains_sgrad<Apply<StateGradOp<J>>> : std::true_type {};
+  template <class T, std::size_t IVar> struct contains_sgrad<Var<T,IVar>> : std::false_type {};
+  template <class T> struct contains_sgrad<Const<T>> : std::false_type {};
+  template <class Op, class... Ch>
+  struct contains_sgrad<Apply<Op,Ch...>>
+      : std::bool_constant<(contains_sgrad<std::decay_t<Ch>>::value || ...)> {};
+
+  // Keep only the part that depends on StateGrad placeholders
+  template <class T, std::size_t IVar>
+  static auto keep_sgrad(const Var<T,IVar>& v) { return zero_like(v); }
+  template <class T>
+  static auto keep_sgrad(const Const<T>& c) { return zero_like(c); }
+  template <std::size_t J>
+  static auto keep_sgrad(const Apply<StateGradOp<J>>&) { return Apply<StateGradOp<J>>{}; }
+  template <class Op, class... Ch>
+  static auto keep_sgrad(const Apply<Op,Ch...>& a) {
+    using E = Apply<Op,Ch...>;
+    if constexpr (!contains_sgrad<std::decay_t<E>>::value) {
+      return zero_like(a);
+    } else {
+      return std::apply([&](const auto&... c){
+        return Apply<Op, decltype(keep_sgrad(c))...>( keep_sgrad(c)... );
+      }, a.ch);
+    }
+  }
+
+  // Tuple helpers
+  template <std::size_t N, class Tuple, std::size_t... Is>
+  static auto tuple_take_impl(const Tuple& t, std::index_sequence<Is...>) { return std::make_tuple(std::get<Is>(t)...); }
+  template <std::size_t N, class Tuple>
+  static auto tuple_take(const Tuple& t) { return tuple_take_impl<N>(t, std::make_index_sequence<N>{}); }
+  template <std::size_t P, class Tuple, std::size_t... Is>
+  static auto tuple_drop_impl(const Tuple& t, std::index_sequence<Is...>) {
+    return std::make_tuple(std::get<P + Is>(t)...);
+  }
+  template <std::size_t P, class Tuple>
+  static auto tuple_drop(const Tuple& t) {
+    constexpr std::size_t M = std::tuple_size<std::decay_t<Tuple>>::value;
+    return tuple_drop_impl<P>(t, std::make_index_sequence<M - P>{});
+  }
+  template <class Tuple, class F, std::size_t... Is>
+  static auto tuple_transform_impl(const Tuple& t, F&& f, std::index_sequence<Is...>) {
+    return std::make_tuple(f(std::get<Is>(t))...);
+  }
+  template <class Tuple, class F>
+  static auto tuple_transform(const Tuple& t, F&& f) {
+    constexpr std::size_t M = std::tuple_size<std::decay_t<Tuple>>::value;
+    return tuple_transform_impl(t, std::forward<F>(f), std::make_index_sequence<M>{});
+  }
+  template <class F, class Tuple>
+  static auto tuple_apply_cat(F&& f, const Tuple& t) { return std::apply(std::forward<F>(f), t); }
+
+  // Build tuple of K inits equal to unit vector e_{IV} (typed as double)
+  template <std::size_t IV, std::size_t... Is>
+  static auto make_unit_inits_impl(std::index_sequence<Is...>) {
+    return std::make_tuple(lit(static_cast<double>((Is == IV) ? 1.0 : 0.0))...);
+  }
+  template <std::size_t IV>
+  static auto make_unit_inits() { return make_unit_inits_impl<IV>(std::make_index_sequence<K>{}); }
+
+  template <std::size_t IVar, class NNode, class... Rest>
+  static auto d(const NNode& n, const Rest&... rest) {
+    // rest = [init0..initK-1, next0..nextK-1]
+    static_assert(sizeof...(Rest) == 2*K, "LoopForOp<K>::d expects 2*K trailing args");
+    // Build tuples for inits and nexts
+    auto tup = std::make_tuple(rest...);
+    auto inits = tuple_take<K>(tup);
+    auto nexts = tuple_drop<K>(tup);
+    // Compute init grads via standard diff of initial states
+    auto d_inits = tuple_transform(inits, [&](const auto& x){
+      return diff(x, std::integral_constant<std::size_t, IVar>{});
+    });
+    // For each next_k, build d_next_k = replace_sgrad(keep_sgrad(raw)) + strip_sgrad(raw)
+    auto d_nexts = tuple_transform(nexts, [&](const auto& next_k){
+      auto raw = diff(next_k, std::integral_constant<std::size_t, IVar>{});
+      auto Js_grad = keep_sgrad(raw);
+      auto Js = replace_sgrad(Js_grad);
+      auto b  = strip_sgrad(raw);
+      return Apply<AddOp, decltype(Js), decltype(b)>( Js, b );
+    });
+    // Rebuild LoopForOp<K>(n, d_inits..., d_nexts...)
+    return tuple_apply_cat([&](const auto&... di){
+      return tuple_apply_cat([&](const auto&... dn){
+        return Apply<LoopForOp<K>, NNode, decltype(di)..., decltype(dn)...>(n, di..., dn...);
+      }, d_nexts);
+    }, d_inits);
+  }
+};
+
+// Extract J-th output of a loop
+template <std::size_t J>
+struct LoopOutOp {
+  static constexpr std::size_t arity = 1;
+  template <class A>
+  static constexpr double eval(const A&) { return 0.0; }
+  template <std::size_t I, class A>
+  static auto d(const A& a) {
+    // Differentiate by pushing derivative through the Out selector
+    auto da = diff(a, std::integral_constant<std::size_t,I>{});
+    return Apply<LoopOutOp<J>, decltype(da)>(std::move(da));
+  }
+};
+#endif
 struct AddOp {
   static constexpr std::size_t arity = 2;
   template <class A, class B> static constexpr auto eval(A&& a, B&& b)
@@ -210,6 +502,67 @@ constexpr auto tanh(A a) { return Apply<TanhOp, std::decay_t<A>>(std::move(a)); 
 template <class L, class R, std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
 constexpr auto pow(L l, R r) { return Apply<PowOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
 
+#ifdef ET_ENABLE_CONTROL_FLOW
+// Comparison operators (when at least one side is a node)
+template <class L, class R, std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
+constexpr auto operator<(L l, R r) { return Apply<LtOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
+template <class L, class R, std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
+constexpr auto operator<=(L l, R r) { return Apply<LeOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
+template <class L, class R, std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
+constexpr auto operator>(L l, R r) { return Apply<GtOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
+template <class L, class R, std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
+constexpr auto operator>=(L l, R r) { return Apply<GeOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
+template <class L, class R, std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
+constexpr auto operator==(L l, R r) { return Apply<EqOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
+template <class L, class R, std::enable_if_t<is_node_t<L>::value || is_node_t<R>::value, int> = 0>
+constexpr auto operator!=(L l, R r) { return Apply<NeOp, std::decay_t<L>, std::decay_t<R>>(std::move(l), std::move(r)); }
+
+// Logical not for node
+template <class A, std::enable_if_t<is_node_t<A>::value, int> = 0>
+constexpr auto operator!(A a) { return Apply<NotOp, std::decay_t<A>>(std::move(a)); }
+
+// If/Select wrappers (only when at least one side is a node)
+template <class C, class T, class E,
+          std::enable_if_t<is_node_t<C>::value || is_node_t<T>::value || is_node_t<E>::value, int> = 0>
+constexpr auto If(C c, T t, E e) { return Apply<IfOp, std::decay_t<C>, std::decay_t<T>, std::decay_t<E>>(std::move(c), std::move(t), std::move(e)); }
+
+template <class M, class T, class E,
+          std::enable_if_t<is_node_t<M>::value || is_node_t<T>::value || is_node_t<E>::value, int> = 0>
+constexpr auto Select(M m, T t, E e) { return Apply<SelectOp, std::decay_t<M>, std::decay_t<T>, std::decay_t<E>>(std::move(m), std::move(t), std::move(e)); }
+
+// Loop sugar
+inline constexpr auto Iter() { return Apply<IterOp>{}; }
+template <std::size_t I>
+inline constexpr auto State() { return Apply<StateOp<I>>{}; }
+
+// Loop core (K=1) and output selector convenience
+template <class N, class... InitsAndNexts,
+          std::enable_if_t<(sizeof...(InitsAndNexts) >= 2) && (is_node_t<N>::value || (std::disjunction<is_node<std::decay_t<InitsAndNexts>>...>::value)), int> = 0>
+constexpr auto LoopForCore1(N n, InitsAndNexts... rest) {
+  return Apply<LoopForOp<1>, std::decay_t<N>, std::decay_t<InitsAndNexts>...>(std::move(n), std::move(rest)...);
+}
+
+// Generic LoopFor builder for K carried states
+template <std::size_t K, class N, class... InitsAndNexts,
+          std::enable_if_t<(sizeof...(InitsAndNexts) == 2*K) && (is_node_t<N>::value || (std::disjunction<is_node<std::decay_t<InitsAndNexts>>...>::value)), int> = 0>
+constexpr auto LoopFor(N n, InitsAndNexts... rest) {
+  return Apply<LoopForOp<K>, std::decay_t<N>, std::decay_t<InitsAndNexts>...>(std::move(n), std::move(rest)...);
+}
+
+// Output selector helper: Out<J>(loop)
+template <std::size_t J, class Loop,
+          std::enable_if_t<is_node_t<Loop>::value, int> = 0>
+constexpr auto Out(Loop l) { return Apply<LoopOutOp<J>, std::decay_t<Loop>>(std::move(l)); }
+
+// ForN with one carried state: returns output 0 of core
+template <class N, class Init, class Next,
+          std::enable_if_t<is_node_t<N>::value || is_node_t<Init>::value || is_node_t<Next>::value, int> = 0>
+constexpr auto LoopForN(N n, Init init, Next next) {
+  auto core = LoopForCore1(std::move(n), std::move(init), std::move(next));
+  return Apply<LoopOutOp<0>, decltype(core)>(std::move(core));
+}
+#endif
+
 //===========================
 // Automatic differentiation
 //===========================
@@ -234,6 +587,42 @@ template <class Op, class... Ch, std::size_t I>
 constexpr auto diff(const Apply<Op,Ch...>& node, std::integral_constant<std::size_t,I>) {
   return std::apply([&](const auto&... c){ return Op::template d<I>(c...); }, node.ch);
 }
+
+#ifdef ET_ENABLE_CONTROL_FLOW
+#ifdef ET_ENABLE_LOOP_SYMBOLIC_AD
+// Specialized diff: Out<J>( LoopFor<K>(N, inits..., nexts...) )
+// Build derivative loop directly using keep_sgrad/strip_sgrad decomposition.
+template <std::size_t J, std::size_t K, class NNode, class... Rest, std::size_t I>
+constexpr auto diff(const Apply<LoopOutOp<J>, Apply<LoopForOp<K>, NNode, Rest...>>& node,
+                    std::integral_constant<std::size_t,I>) {
+  static_assert(sizeof...(Rest) == 2*K, "LoopOutOp<J> over LoopForOp<K> expects 2*K trailing children");
+  const auto& loop = std::get<0>(node.ch);
+  const auto& n    = std::get<0>(loop.ch);
+  // Split children after dropping N into inits and nexts
+  auto rest_all = LoopForOp<K>::template tuple_drop<1>(loop.ch);
+  auto inits    = LoopForOp<K>::template tuple_take<K>(rest_all);
+  auto nexts    = LoopForOp<K>::template tuple_drop<K>(rest_all);
+  // d_inits: differentiate initial states wrt var I
+  auto d_inits = LoopForOp<K>::tuple_transform(inits, [&](const auto& x){
+    return diff(x, std::integral_constant<std::size_t, I>{});
+  });
+  // d_nexts[k] = replace_sgrad(keep_sgrad(diff(next[k]))) + strip_sgrad(diff(next[k]))
+  auto d_nexts = LoopForOp<K>::tuple_transform(nexts, [&](const auto& x){
+    auto raw = diff(x, std::integral_constant<std::size_t, I>{});
+    auto Js  = LoopForOp<K>::replace_sgrad(LoopForOp<K>::keep_sgrad(raw));
+    auto b   = LoopForOp<K>::strip_sgrad(raw);
+    return Apply<AddOp, decltype(Js), decltype(b)>(Js, b);
+  });
+  // Rebuild LoopFor(K) with derivative inits and nexts, then select J
+  auto d_loop = LoopForOp<K>::tuple_apply_cat([&](const auto&... di){
+    return LoopForOp<K>::tuple_apply_cat([&](const auto&... dn){
+      return Apply<LoopForOp<K>, NNode, decltype(di)..., decltype(dn)...>(n, di..., dn...);
+    }, d_nexts);
+  }, d_inits);
+  return Apply<LoopOutOp<J>, decltype(d_loop)>(std::move(d_loop));
+}
+#endif // ET_ENABLE_LOOP_SYMBOLIC_AD
+#endif // ET_ENABLE_CONTROL_FLOW
 
 // Op derivative definitions (after diff exists)
 template <std::size_t I, class ANode, class BNode>

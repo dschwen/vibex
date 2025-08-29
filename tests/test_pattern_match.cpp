@@ -1,8 +1,7 @@
 #include <cassert>
 #include <unordered_map>
 
-#include "et/expr.hpp"
-#include "et/runtime_ast.hpp"
+#include "et/ast.hpp"
 #include "et/normalize.hpp"
 #include "et/pattern.hpp"
 #include "et/match.hpp"
@@ -10,45 +9,38 @@
 using namespace et;
 
 int main() {
-  using namespace et::pat;
+  using namespace et::astpat;
   {
-    auto [x] = Vars<double,1>();
-    auto e = sin(x)*sin(x) + cos(x)*cos(x);
-    RGraph g = compile_to_runtime(e);
-    RGraph gn = normalize(g);
-
+    auto x = var(0);
+    Expr e = sin(x)*sin(x) + cos(x)*cos(x);
     // Pattern: sin(P1)*sin(P1) + cos(P1)*cos(P1)
     Pattern p = (sin(P(1))*sin(P(1))) + (cos(P(1))*cos(P(1)));
-    Bindings b; MultiBindings mb;
-    bool ok = match(gn, p, b, mb);
+    AstBindings b; AstMultiBindings mb;
+    bool ok = match(e, p, b, mb);
     assert(ok);
     assert(b.count(1) == 1);
-    int nid = b[1];
-    const RNode& bn = gn.nodes[nid];
-    assert(bn.kind == NodeKind::Var && bn.var_index == 0);
+    Expr cap = b[1];
+    auto v = std::dynamic_pointer_cast<VarNode>(cap.n);
+    assert(v && v->index == 0);
   }
 
   {
     // Mismatch case: different placeholder targets must fail
-    auto [x,y] = Vars<double,2>();
-    auto e = sin(x)*sin(x) + cos(y)*cos(y);
-    RGraph g = compile_to_runtime(e);
-    RGraph gn = normalize(g);
+    auto x = var(0), y = var(1);
+    Expr e = sin(x)*sin(x) + cos(y)*cos(y);
     Pattern p = (sin(P(1))*sin(P(1))) + (cos(P(1))*cos(P(1)));
-    Bindings b; MultiBindings mb;
-    bool ok = match(gn, p, b, mb);
+    AstBindings b; AstMultiBindings mb;
+    bool ok = match(e, p, b, mb);
     assert(!ok);
   }
 
   {
     // AC matching inside mul: sin(P1)*sin(P1) should fail on sin(x)*sin(y)
-    auto [x,y] = Vars<double,2>();
-    auto e = sin(x)*sin(y);
-    RGraph g = compile_to_runtime(e);
-    RGraph gn = normalize(g);
+    auto x = var(0), y = var(1);
+    Expr e = sin(x)*sin(y);
     Pattern p = sin(P(1))*sin(P(1));
-    Bindings b; MultiBindings mb;
-    bool ok = match(gn, p, b, mb);
+    AstBindings b; AstMultiBindings mb;
+    bool ok = match(e, p, b, mb);
     assert(!ok);
   }
 

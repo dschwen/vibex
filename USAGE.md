@@ -4,124 +4,66 @@ This is a quick, practical tour of the “user-facing” surface of Vibex: build
 
 ---
 
-## 1) Core Concepts & Types
+## 1) Core Concepts (AST)
 
-### Variables
-Variables are **typed placeholders** addressed by index in the call operator.
+### Variables and constants
+Build expressions with the runtime AST API in `et/ast.hpp`:
 
 ```cpp
 using namespace et;
-
-auto x = Var<double, 0>{};
-auto y = Var<double, 1>{};
-auto z = Var<double, 2>{};
-
-// convenience: pack variables
-auto xyz = Vars<double, 3>(); // std::tuple<Var<double,0>, Var<double,1>, Var<double,2>>
-```
-
-### Constants
-Use `lit(value)` to inject numeric constants:
-
-```cpp
-auto c = lit(2.5); // Const<double>
-```
-
-### Building expressions
-Use constrained operator overloads and function shorthands (only kick in when at least one operand is an ET node, so they don’t pollute normal code):
-
-```cpp
-auto f = sin(x) * y + z * z + c / (x + y);
+auto x = var(0), y = var(1), z = var(2);
+Expr c = lit(2.5);
+Expr f = sin(x) * y + z * z + c / (x + y);
 ```
 
 ### Evaluation
-Call the expression like a function with **heterogeneous** arguments (C++ converts to the declared `value_type`s of the variables):
+Pass inputs as `std::vector<double>` indexed by `var(i)`:
 
 ```cpp
-double v = f(2.4, 6, 1.1); // x=2.4 (double), y=6 (int), z=1.1 (double)
-```
-
-There’s also a helper:
-
-```cpp
-auto v2 = evaluate(f, 2.4, 6, 1.1);
+double v = eval(f, {2.4, 6.0, 1.1});
 ```
 
 ---
 
-## 2) Automatic Differentiation (symbolic)
+## 2) Automatic Differentiation
 
-### Single partial
-You can differentiate by index or, more pleasantly, by variable:
+Prefer reverse‑mode via the Tape backend at runtime. Symbolic `diff()` remains available via `et/expr.hpp` for compile‑time expressions when needed, but the default path is AST→Tape.
 
-```cpp
-// by variable (index deduced)
-auto dfx = diff(f, x);
-auto dfy = diff(f, y);
-auto dfz = diff(f, z);
+---
 
-// by index
-auto dfx2 = diff(f, std::integral_constant<std::size_t, 0>{});
-```
+## 3) Simplification (AST)
 
-> Note: the “diff recursion” bug was fixed by removing a recursive trailing return type on the sugar overload. You shouldn’t need to tweak template depth flags.
+Use the AST normalization and rewrite passes:
+- `normalize(e)`: recursively normalizes and folds constants (`normalize.hpp`).
+- `rewrite_fixed_point(e)`: applies AST-native algebraic rules to a fixed point (`rewrite_ast.hpp`).
 
-### Gradient
-Works with either separate vars or a tuple:
+Example:
 
 ```cpp
-auto g1 = grad(f, x, y, z);  // tuple of 3 ET expressions
-auto g2 = grad(f, xyz);      // same
-```
+#include "et/ast.hpp"
+#include "et/normalize.hpp"
+#include "et/rewrite_ast.hpp"
 
-You can evaluate gradients like expressions:
-
-```cpp
-auto [gx, gy, gz] = g1;
-auto gx_val = gx(2.4, 6, 1.1);
+auto x = et::var(0), y = et::var(1);
+et::Expr f = et::sin(x)*y + et::lit(0.0);
+et::Expr fs = et::rewrite_fixed_point(f); // folds +0 and normalizes
 ```
 
 ---
 
-## 3) Simplification
+## 4) Backends & Compilation (AST)
 
-The `simplify` pass performs:
-- recursive simplification of children
-- **pure constant folding** (operations where both sides are `Const<T>` or unary const)
-
-We intentionally **don’t** do value-dependent single-sided rewrites (like `x * 1 → x`) because that introduces mixed return types with `auto` and breaks deduction. You get predictable, type-stable simplifications:
-
-```cpp
-auto g = simplify(dfx);      // returns an ET node (possibly with Const folded)
-auto v = g(2.4, 6, 1.1);
-```
-
-For aggressive canonicalization and algebraic identities, use the rewrite engine:
-
-```cpp
-auto r = rewrite(f, default_rules());
-```
-
-It normalizes associative/commutative ops and applies pattern-based rules
-like neutral elements and trig identities (see `DESIGN_REWRITE.md` and
-`examples/08_rewrite_rules.cpp`).
-
----
-
-## 4) Backends & Visitors
-
-Vibex is backend-agnostic. A backend provides a few methods and Vibex calls them via `compile(…, backend)` or the CSE variants. A minimal backend API looks like:
+Vibex is backend-agnostic. A backend provides a few methods and Vibex calls them via `compile_runtime(…, backend)` or the AST CSE variants. A minimal backend API looks like:
 
 ```cpp
 struct MyBackend {
   using result_type = /* handle/id/type you use to refer to compiled nodes */;
 
   // Emit a variable by runtime index (maps to input slot `idx`)
-  template <class T>
   result_type emitVar(std::size_t idx);
 
-  template <class T>
-  result_type emitConst(const Const<T>&);
+  // Emit a constant literal
+  result_type emitConst(double);
 
   template <class Op, class... Hs> // Hs: result_type produced for children
   result_type emitApply(Op, Hs...);
@@ -132,16 +74,16 @@ struct MyBackend {
 
 ```cpp
 MyBackend b;
-auto h = compile(f, b); // returns MyBackend::result_type
+auto h = compile_runtime(f, b); // returns MyBackend::result_type
 ```
 
-### CSE variants
-- **Structural CSE**: memoizes by structural string key
-- **Hashed CSE**: memoizes by a structural hash with lazy key materialization for collisions
+### CSE variants (AST)
+- **Hashed structural CSE**: `compile_cse(f, backend)`
+- **String-key CSE** (Tape backend): `compile_hash_cse(f, tape_backend)`
 
 ```cpp
 auto h1 = compile_cse(f, b);
-auto h2 = compile_hash_cse(f, b);
+auto h2 = compile_hash_cse(f, tape_backend);
 ```
 
 ---
@@ -155,8 +97,9 @@ The provided `TapeBackend` builds a compact instruction tape you can execute. It
 ### Building a tape
 
 ```cpp
-TapeBackend tape;
-auto root = compile_hash_cse(f, tape);   // or compile(), compile_cse()
+TapeBackend tb(arity);
+int root = compile_runtime(f, tb);   // or compile_cse(), compile_hash_cse()
+tb.tape.output_id = root;
 ```
 
 Under the hood:
@@ -168,7 +111,7 @@ Under the hood:
 
 ```cpp
 std::vector<double> inputs = {2.4, 6.0, 1.1}; // x,y,z
-double out = tape.forward(root, inputs);
+double out = tb.tape.forward(inputs);
 ```
 
 ### Reverse-mode (Backward)
@@ -176,7 +119,7 @@ double out = tape.forward(root, inputs);
 `backward(inputs)` back-propagates to produce partials wrt inputs:
 
 ```cpp
-std::vector<double> grad = tape.backward(inputs);
+std::vector<double> grad = tb.tape.backward(inputs);
 // grad[0] = d f / d x  at inputs
 // grad[1] = d f / d y
 // grad[2] = d f / d z
@@ -222,11 +165,9 @@ struct TorchBackend {
 Usage:
 
 ```cpp
-TorchBackend tb;
-auto out = compile_hash_cse(f, tb);
-
-// Wrap graph as a scripted function/module as you prefer,
-// then pass Tensors at runtime.
+TorchJITBackend tb(arity);
+auto out = compile_runtime(f, tb);
+// Optionally traverse tb.g to inspect prims and aten ops
 ```
 
 **Type notes:**  
@@ -238,6 +179,83 @@ auto out = compile_hash_cse(f, tb);
 - Add a Torch mapping to `emitApply(MyOp{}, ...)`
 
 ---
+
+## 7) Control Flow (gated)
+
+Control-flow and predicates are available behind `ET_ENABLE_CONTROL_FLOW`. Define it at compile time for targets that use them (examples/tests do this via target_compile_definitions).
+
+- Comparisons: `<`, `<=`, `>`, `>=`, `==`, `!=` produce a boolean-like node (internally represented as numeric 0/1 for runtime eval).
+- Logical not: `!cond`.
+- Conditionals:
+  - `If(cond, then_expr, else_expr)`: control-flow branch. Only the chosen branch is evaluated. Intended for scalar conditions; do not commute/normalize across it.
+  - `Select(mask, on_true, on_false)`: elementwise conditional (like NumPy/torch `where`). Both branches are conceptually present; applies broadcasting where defined.
+
+AD semantics
+- Conditions/masks are non-differentiable. No gradients flow into them.
+- Symbolic diff mirrors the primal structure:
+  - `d If(c, a, b) = If(c, d a, d b)`
+  - `d Select(m, a, b) = Select(m, d a, d b)`
+
+Torch lowering (when also compiled with `-DET_WITH_TORCH=ON`)
+- Comparisons map to `aten::{lt,le,gt,ge,eq,ne}`.
+- `!cond` maps to `aten::logical_not`.
+- `If` maps to `prim::If` (use a scalar condition); `Select` maps to `aten::where` for elementwise masking.
+
+See also: `CONTROL_FLOW.md` for a deeper design write-up and tape/Torch details.
+
+### Counted Loops (AST)
+
+Looping is available behind `ET_ENABLE_CONTROL_FLOW` and modeled as a structured, loop-carried form:
+
+- Placeholders inside the body:
+  - `iter()`: current iteration index (0-based)
+  - `state(i)`: i-th carried value at the current iteration
+- Builders:
+  - `loop_for(K, n, {inits...}, {nexts...})`: K carried states; returns a loop node
+  - `loop_out(J, loop)`: select the J-th final carried value from a loop
+
+Example: running sum and Fibonacci
+
+```cpp
+using namespace et;
+auto n = var(0);
+
+// Running sum: s_{t+1} = s_t + t
+Expr core = loop_for(1, n, { lit(0.0) }, { state(0) + iter() });
+Expr sum  = loop_out(0, core); // value after n iterations
+
+// Fibonacci via two carried states: (a,b) <- (b, a+b)
+Expr fib = loop_for(2, n, { lit(0.0), lit(1.0) }, { state(1), state(0) + state(1) });
+Expr aN  = loop_out(0, fib); // F(n)
+Expr bN  = loop_out(1, fib); // F(n+1)
+```
+
+Semantics and AD
+- The loop runs exactly `n` iterations (non-negative; fractional parts truncated during execution). No gradients flow through `n`.
+- Tape VJP supports loops by reverse iterating the body VJP and propagating into init state and inputs.
+
+Torch lowering (when enabled)
+- `LoopFor` lowers to `prim::Loop` with carried dependencies; `Out<J>` lowers to indexing into the loop’s carried outputs.
+- `Iter()` maps to the loop’s iteration index (cast to a Tensor); `State<I>()` maps to the I-th carried block input.
+
+### Torch JIT (AST path)
+Lower an AST directly to a TorchScript graph using `TorchJITBackend`:
+
+```cpp
+#ifdef ET_WITH_TORCH
+#  include "et/ast.hpp"
+#  include "et/compile.hpp"
+#  include "et/torch_jit_backend.hpp"
+  auto x = et::var(0);
+  et::Expr expr = et::Select(x > et::lit(0.0), x + et::lit(1.0), x - et::lit(1.0));
+  et::TorchJITBackend JB(1);
+  auto out = et::compile_runtime(expr, JB);
+  JB.g.registerOutput(out);
+  std::cout << JB.g.toString() << "\n";
+#endif
+```
+
+
 
 ## 7) Extending Vibex with new operations
 
@@ -282,26 +300,10 @@ Update your backends’ `emitApply` to recognize `SoftplusOp`.
 
 ## 7) Rewrite and Optimize
 
-The rewrite engine works over a normalized runtime AST with associative/commutative (AC) flattening and sorting for `Add`/`Mul`. For sum-like uniformity, `Sub(a,b)` is normalized to `Add(a, Neg(b))`. After rewriting to a fixed point, you can denormalize back to `Sub` in the two-term case for prettier output.
+The AST rewrite operates over a normalized AST (AC flattening/sorting for `Add`/`Mul`). For sum-like uniformity, `Sub(a,b)` is normalized to `Add(a, Neg(b))` internally.
 
-- Rules: see `include/et/rules_default.hpp`.
-- Fixed-point rewrite: `rewrite_fixed_point(graph, rules)` or `rewrite_expr(expr, rules)`.
-- Convenience: `optimize(expr, rules)` or `optimize(expr)` (uses default rules).
-  - Flow: normalize → rewrite* → normalize → denormalize_sub.
-  - Examples: `examples/08_rewrite_rules.cpp` (optimize), `examples/09_rewrite_nested.cpp` (per-pass + Pretty).
-
-Quick example:
-
-```cpp
-#include "et/optimize.hpp"
-
-auto [x] = et::Vars<double,1>();
-auto e = et::sin(x)*et::sin(x) + et::cos(x)*et::cos(x) + (et::lit(2.0)*x + et::lit(3.0)*x);
-
-// optimize() runs: normalize → rewrite* → normalize → denormalize_sub
-et::RGraph g = et::optimize(e);
-std::cout << r_to_string(g) << "\n"; // Already pretty (Sub restored where applicable)
-```
+- Fixed-point rewrite: `et::rewrite_fixed_point(expr)` (built-in rules for algebraic identities such as log∘exp, trig simplifications, like-term merging, factoring, etc.).
+- Examples: `examples/08_rewrite_rules.cpp` and `examples/09_rewrite_nested.cpp`.
 
 ## 8) Practical tips & gotchas
 
@@ -310,36 +312,33 @@ std::cout << r_to_string(g) << "\n"; // Already pretty (Sub restored where appli
 - **Simplify**: We only fold constants known on both sides. Neutral-element rewrites (like `x + 0`) are omitted to keep return types stable. If you want aggressive algebra, we can switch to NTTP constants later.
 - **Template depth**: With the fixed `diff` sugar and careful `d<I>` implementations, default depth is fine. If you add extremely nested ops, `-ftemplate-depth=2000` is a safe global fallback.
 - **CSE choice**:  
-  - `compile_cse` compares structural **strings** (robust, a bit heavier).  
-  - `compile_hash_cse` is faster but uses hashing plus lazy structural keys only on collisions.
+  - `compile_cse_ast` performs CSE on the AST using a structural hash with collision-checked keys (fast, general).  
+  - `compile_hash_cse_ast` uses canonical string keys (simple and robust, a bit heavier).
 - **Rewrite normalization**: Matching happens after AC normalization; subtraction is represented as `Add(..., Neg(...))` unless you denormalize back.
 - **Torch op mapping**: Some ops may require broadcasting semantics; decide whether your graph should “scalarize” or broadcast to match tensor shapes.
 
 ---
 
-## 9) Tiny end-to-end example
+## 9) Tiny end-to-end example (AST)
 
 ```cpp
-#include "et/expr.hpp"
-#include "et/simplify.hpp"
-#include "et/tape_backend.hpp"
+#include "et/ast.hpp"
 #include "et/compile_hash_cse.hpp"
+#include "et/tape_backend.hpp"
 
 using namespace et;
 
 int main() {
-  auto [x, y, z] = Vars<double, 3>();
+  auto x = et::var(0), y = et::var(1), z = et::var(2);
+  et::Expr f = et::sin(x) * y + z * z;
 
-  auto f = sin(x) * y + z * z;
-  auto dfx = simplify(diff(f, x)); // cos(x)*y
-
-  TapeBackend tape;
-  auto h = compile_hash_cse(dfx, tape);
+  et::TapeBackend tb(3);
+  int root = et::compile_hash_cse(f, tb);
+  tb.tape.output_id = root;
 
   std::vector<double> in = {2.4, 6.0, 1.1};
-  double val = tape.forward(h, in);        // numeric value of d f / d x at inputs
-  auto grad = tape.backward(in);           // gradient wrt (x,y,z) of d f / d x (here mostly 0 except x chain)
-
+  double val = tb.tape.forward(in);        // f(x,y,z)
+  auto grad = tb.tape.backward(in);        // ∂f/∂(x,y,z)
   (void)val; (void)grad;
 }
 ```

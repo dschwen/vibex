@@ -40,14 +40,11 @@ Why both `IfOp` and `SelectOp`?
 
 ## 2. AST Representation
 
-Runtime AST (`include/et/runtime_ast.hpp`)
-- Extend `enum class RKind` with: `If`, `Loop`, `Select`.
-- `RNode` payloads:
-  - `If`: fields `{cond: id, then_: id, else_: id}`.
-  - `Select`: `{mask: id, on_true: id, on_false: id}`.
-  - `Loop`: `{max_iter: id /*const or var*/, init_state: id, cond_subgraph_root: id, body_subgraph_root: id}`.
-    - The `cond_subgraph_root` and `body_subgraph_root` are roots of subgraphs that may reference a reserved loop‑state variable node `RKind::LoopState` (new node kind) to read the current state.
-    - We avoid general lambdas by introducing a single `LoopState` read node (no write; the body result becomes the next state). This fits our existing index‑based var emission model and keeps loops first‑order.
+Runtime AST (`include/et/ast.hpp`)
+- Nodes for control flow and loops exist directly in the AST:
+  - `IfNode(cond, then, else_)`, `SelectNode(mask, a, b)`
+  - `IterNode()`, `StateReadNode(i)`, `LoopForNode(K, children)`, `LoopOutNode(J, loop)`
+- LoopFor uses children `[N, init0..initK-1, next0..nextK-1]` and `LoopOut(J, loop)` extracts the J‑th carried value after N iterations.
 
 ET surface (`include/et/expr.hpp`)
 - Add tags `IfOp`, `LoopOp`, `SelectOp`, and `LoopState`.
@@ -59,9 +56,8 @@ ET surface (`include/et/expr.hpp`)
        auto body = Add(LoopState<double>(), Const(1.0));
        auto out = ForN(Const(10), s0, body); // s_{k+1} = s_k + 1`
 
-Compile to runtime
-- Extend `compile_to_runtime` to lower the new ET nodes to the `RGraph` forms above.
-- For `While`, lower to `Loop` with both `cond` and `body` subgraphs.
+Compilation
+- Use `compile_runtime(const Expr&, Backend&)` to lower AST to a backend (Tape backend for execution and VJP; Torch JIT when enabled).
 
 Structural hashing/CSE
 - Include kind and child ids for `If`, `Select` as usual.
@@ -128,19 +124,19 @@ Assumptions
 
 ## 5. Backends
 
-5.1 Runtime evaluator (`include/et/compile_runtime.hpp`)
-- Add execution for `If`: evaluate `cond` → bool; branch accordingly.
-- Add `Select`: elementwise dispatch with broadcasting when types support it.
-- Add `Loop`: implement counted loops; for `While`, re‑evaluate `cond(state)` each iteration. The `LoopState` read pulls the current carried state from the evaluator’s loop frame.
+5.1 AST eval and Tape
+- AST `eval(e, inputs)` handles arithmetic, comparisons, `If`, and `Select` directly.
+- For loops (`Iter/StateRead/LoopFor/LoopOut`), compile to `TapeBackend` and run `forward(inputs)`; reverse VJP is supported.
 
-5.2 CSE/Hash CSE compilers (`include/et/compile_cse.hpp`, `include/et/compile_hash_cse.hpp`)
-- Treat `If`/`Select`/`Loop` as new op kinds in the visitors. For `If`/`Select`, dedupe identical subtrees as usual.
-- For `Loop`, dedupe identical `cond`/`body` subgraphs reused in multiple callers; loop frames remain distinct per use site at runtime.
+5.2 CSE/Hash CSE compilers (AST) (`include/et/compile_cse_ast.hpp`, `include/et/compile_hash_cse_ast.hpp`)
+- Treat `If`/`Select`/comparisons/`LoopFor`/`LoopOut` as first-class AST kinds. CSE keys include op kind and normalized children.
+- For loops, structural hashing uses `(K, N, inits..., nexts...)`; memoization eliminates repeated loop bodies across uses.
 
 5.3 Tape backend (`include/et/tape_backend.hpp`)
-- Extend `enum class Kind` with `If`, `Select`, `LoopBegin`, `LoopIter`, `LoopEnd`.
-- Implement forward emission and reverse VJP routing per §4.2.
-- Ensure variables are still emitted by runtime index (`emitVar<T>(std::size_t idx)`) and that loop state reads `LoopState` use a separate tape slot managed by the backend (not a user input index).
+- Extend `Tape::Kind` with `KIter`, `KStateRead`, `KLoopFor`, `KLoopOut` along with the existing control‑flow kinds.
+- Forward execution: `KLoopOut` evaluates the referenced `KLoopFor` by iterating `n` times and evaluating `next_k` in a loop context that supplies `Iter()` and `State<I>`. Returns the `J`‑th carried value.
+- Reverse VJP: implemented by reverse iteration of the body Jacobian^T, propagating into init state and input variables. No gradient flows into boolean predicates.
+- Variables are still emitted by runtime index via `emitVar<T>(idx)`.
 
 5.4 Torch JIT backend (`include/et/torch_jit_backend.hpp`)
 - IfOp → `prim::If`
@@ -149,6 +145,7 @@ Assumptions
 - SelectOp → `aten::where` (preferred) when mask and branches are tensor‑like; fallback to `prim::If` otherwise.
 - LoopOp → `prim::Loop`
   - Torch’s loop takes trip count and condition as inputs and models loop‑carried dependencies as block inputs/outputs. Lower `ForN` by supplying trip count `n` and a constant `true` condition; propagate state as carried deps; update the condition each iter for `While` using the condensed subgraph rooted at `cond_root`.
+  - Pack the K carried results into a Tensor list; `Out<J>` lowers to `aten::__getitem__(list, J)`.
 - Variable emission remains by runtime index (`emitVar<T>(idx)`); loop state is a carried dependency in the prim::Loop and not a Var.
 
 Gating
@@ -176,7 +173,7 @@ Gating
   - Unrolled `ForN` gradient matches numerical finite differences.
 - Tape
   - Branching test where only chosen branch accumulates gradients.
-  - Loop with recorded `iters_executed`; backward iterates in reverse.
+  - Loop: forward validates iterative semantics. VJP coverage to follow when adjoint threading is implemented.
 - Torch (gated)
   - Graph contains `prim::If`/`prim::Loop`/`aten::where` as appropriate; run a few example executions if Torch is available.
 
@@ -188,28 +185,22 @@ Gating
 
 ## 9. Implementation Sketch
 
-Headers to touch
-- `include/et/expr.hpp`: add op tags, `LoopState` node, helpers.
-- `include/et/runtime_ast.hpp`: add `RKind::{If, Select, Loop, LoopState}` and node payloads.
-- `include/et/compile_runtime.hpp`: evaluator for new nodes; loop frame with current state binding for `LoopState` reads.
-- `include/et/simplify.hpp` and `include/et/normalize.hpp`: constant folding and small unrolls.
-- `include/et/compile_cse.hpp`, `include/et/compile_hash_cse.hpp`: include new kinds in visitors and hashing.
-- `include/et/tape_backend.hpp`: new tape kinds and VJP logic.
-- `include/et/torch_jit_backend.hpp`: emit prim::If/Loop/aten::where.
-- `include/et/rules_default.hpp`: add guarded rules for the simple folds/pushes.
-- Examples: `examples/10_control_flow.cpp` (demo If/Select/ForN). Tests under `tests/` accordingly.
+Headers to touch (AST path)
+- `include/et/ast.hpp`: add AST nodes (`If`, `Select`, `LoopFor`, `LoopOut`, `Iter`, `StateRead`) and helpers (`loop_for`, `loop_out`, `iter`, `state`).
+- `include/et/compile.hpp`: lower AST to Tape; add control‑flow and loop emits.
+- `include/et/normalize.hpp`: constant folding and small structural unrolls.
+- `include/et/compile_cse_ast.hpp`, `include/et/compile_hash_cse_ast.hpp`: include new kinds in hashing and emission.
+- `include/et/tape_backend.hpp`: tape kinds (Iter/StateRead/LoopFor/LoopOut), forward loop evaluation, and VJP through loops.
+- `include/et/torch_jit_backend.hpp`: emit prim::If/Loop/aten::where; dynamic loop emitters for AST compilers.
+- Examples: `examples/10_control_flow.cpp` (demo If/Select), `examples/15_ast_torch_loop.cpp` (AST loops to prim::Loop). Tests under `tests/` accordingly.
 
 Key data structure additions (pseudocode)
 ```cpp
-// runtime_ast.hpp
-enum class RKind { /*...,*/ If, Select, Loop, LoopState };
-struct RIf { int cond, then_, else_; };
-struct RSelect { int mask, on_true, on_false; };
-struct RLoop { int max_iter, init_state, cond_root, body_root; };
-struct RNode {
-  RKind kind;
-  // union-like payload
-};
+// ast.hpp (conceptual)
+struct IfNode { Expr c, t, e; };
+struct SelectNode { Expr m, t, e; };
+struct LoopForNode { std::size_t K; std::vector<Expr> ch; /* [N, inits..., nexts...] */ };
+struct LoopOutNode { std::size_t J; Expr loop; };
 
 // tape_backend.hpp (forward emission outline)
 case If: {
@@ -241,3 +232,10 @@ case Loop: {
 Scope Check
 - This plan keeps core invariant: pure, value‑semantics nodes; header‑only; no RTTI/virtuals. Control flow lives as explicit nodes with minimal new machinery (a dedicated `LoopState` read node replacing general lambdas). AD integrates with clear, conservative rules; Torch and Tape map naturally to their structured control flow.
 
+Build Flags & Defaults
+- `ET_ENABLE_CONTROL_FLOW` (default ON via `et` interface target): enables If/Select and comparison operators throughout the project. Downstreams can opt out by configuring CMake with `-DET_ENABLE_CONTROL_FLOW=OFF`.
+- `ET_WITH_TORCH`: required to include and build the Torch backend. Keep it OFF if libtorch is not available; turn it ON to enable Torch examples/tests.
+Torch integration compiles AST directly to `torch::jit::Graph` via `TorchJITBackend`.
+  - Version guard: the wrapper is compiled only when Torch >= 2.3 (`ET_TORCH_MODULE_WRAPPER_AVAILABLE` is defined). Example 11 enables this by default when Torch is present.
+- `ET_BUILD_CONTROL_FLOW_EXAMPLE` (default ON): builds example 10 (If/Select on runtime evaluator).
+- `ET_BUILD_TORCH_EXAMPLES` / `ET_BUILD_TORCH_TESTS`: control Torch example/test targets; as a convenience, example 11 is also built when Torch tests are enabled.

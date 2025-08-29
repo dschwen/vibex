@@ -1,12 +1,16 @@
 #include <iostream>
-#include "et/expr.hpp"
+#include <vector>
+#include "et/ast.hpp"
 
 int main() {
   using namespace et;
-  auto [x,y,z] = Vars<double,3>();
-  auto f = sin(x)*y + z*z;
+  auto x = var(0);
+  auto y = var(1);
+  auto z = var(2);
+  Expr f = sin(x) * y + z * z;
 
-  double val = evaluate(f, 2.4, 6.0, 1.5);
+  std::vector<double> inputs = {2.4, 6.0, 1.5};
+  double val = eval(f, inputs);
   std::cout << "f(2.4, 6, 1.5) = " << val << "\n";
   return 0;
 }

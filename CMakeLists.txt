@@ -19,12 +19,20 @@ endif()
 option(ET_WITH_TORCH "Enable TorchScript integrations" OFF)
 option(ET_BUILD_TORCH_EXAMPLES "Build Torch-based example binaries" OFF)
 option(ET_BUILD_TORCH_TESTS "Build Torch-based tests" OFF)
+option(ET_BUILD_CONTROL_FLOW_EXAMPLE "Build control-flow example" ON)
+option(ET_BUILD_CONTROL_FLOW_TESTS "Build control-flow tests" OFF)
+option(ET_ENABLE_CONTROL_FLOW "Enable control-flow operators (If/Select, comparisons)" ON)
+## Legacy options removed: compile_runtime loops fallback test and compile-time loop AD
 
 # Increase maximum template instantiation depth
 add_compile_options(-ftemplate-depth=12000)
 
 add_library(et INTERFACE)
 target_include_directories(et INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(ET_ENABLE_CONTROL_FLOW)
+  target_compile_definitions(et INTERFACE ET_ENABLE_CONTROL_FLOW)
+endif()
+## Do not define ET_WITH_TORCH globally; only enable on torch targets
 
 add_executable(01_basic_eval examples/01_basic_eval.cpp)
 target_link_libraries(01_basic_eval PRIVATE et)
@@ -50,17 +58,74 @@ target_link_libraries(08_rewrite_rules PRIVATE et)
 add_executable(09_rewrite_nested examples/09_rewrite_nested.cpp)
 target_link_libraries(09_rewrite_nested PRIVATE et)
 
-if(ET_WITH_TORCH AND ET_BUILD_TORCH_EXAMPLES)
+if(ET_BUILD_CONTROL_FLOW_EXAMPLE)
+  add_executable(10_control_flow examples/10_control_flow.cpp)
+  target_link_libraries(10_control_flow PRIVATE et)
+endif()
+
+# ForN loop example (single-carried state)
+add_executable(12_loop_forn examples/12_loop_forn.cpp)
+target_link_libraries(12_loop_forn PRIVATE et)
+
+add_executable(13_loop_fib examples/13_loop_fib.cpp)
+target_link_libraries(13_loop_fib PRIVATE et)
+
+# AST sanity example (runtime AST + Tape)
+add_executable(14_ast_sanity examples/14_ast_sanity.cpp)
+target_link_libraries(14_ast_sanity PRIVATE et)
+
+if(ET_WITH_TORCH)
   find_package(Torch REQUIRED)
+
+  # Ensure the executable can find libtorch's shared libraries at runtime (macOS)
+  if(APPLE)
+    # Derive lib dir from Torch_DIR when TORCH_INSTALL_PREFIX is not defined
+    if(NOT DEFINED TORCH_INSTALL_PREFIX)
+      get_filename_component(_torch_cmake_dir "${Torch_DIR}" DIRECTORY)     # .../lib/cmake
+      get_filename_component(_torch_lib_dir "${_torch_cmake_dir}" DIRECTORY) # .../lib
+      set(_torch_rpath "${_torch_lib_dir}")
+    else()
+      set(_torch_rpath "${TORCH_INSTALL_PREFIX}/lib")
+    endif()
+    set(CMAKE_BUILD_RPATH "${_torch_rpath};${CMAKE_BUILD_RPATH}")
+    set(CMAKE_INSTALL_RPATH "${_torch_rpath};${CMAKE_INSTALL_RPATH}")
+  endif()
+  # Choose a single Torch link handle
+  if(TARGET Torch::Torch)
+    set(ET_TORCH_LIB Torch::Torch)
+  else()
+    set(ET_TORCH_LIB ${TORCH_LIBRARIES})
+  endif()
+
   add_executable(05_torchjit examples/05_torchjit.cpp)
-  target_link_libraries(05_torchjit PRIVATE et ${TORCH_LIBRARIES})
+  target_link_libraries(05_torchjit PRIVATE et ${ET_TORCH_LIB})
   target_compile_definitions(05_torchjit PRIVATE ET_WITH_TORCH)
   target_compile_features(05_torchjit PRIVATE cxx_std_17)
 
   # Enable Torch features inside this example when requested
-  target_link_libraries(06_ops_and_cse PRIVATE ${TORCH_LIBRARIES})
+  target_link_libraries(06_ops_and_cse PRIVATE ${ET_TORCH_LIB})
   target_compile_definitions(06_ops_and_cse PRIVATE ET_WITH_TORCH)
+
+  # Control-flow Torch example (Select + comparisons)
+  add_executable(11_torch_control_flow examples/11_torch_control_flow.cpp)
+  target_link_libraries(11_torch_control_flow PRIVATE et ${ET_TORCH_LIB})
+  target_compile_definitions(11_torch_control_flow PRIVATE ET_WITH_TORCH ET_TORCH_ENABLE_MODULE_WRAPPER ET_TORCH_ENABLE_DEFINE_WRAPPER)
+  target_compile_features(11_torch_control_flow PRIVATE cxx_std_17)
+
+  # Enable Torch features in example 13 (loop + Torch graph printing)
+  if(TARGET 13_loop_fib)
+    target_link_libraries(13_loop_fib PRIVATE ${ET_TORCH_LIB})
+    target_compile_definitions(13_loop_fib PRIVATE ET_WITH_TORCH ET_TORCH_ENABLE_MODULE_WRAPPER ET_TORCH_ENABLE_DEFINE_WRAPPER)
+  endif()
+
+  # AST loops lowered to prim::Loop (Torch JIT)
+  add_executable(15_ast_torch_loop examples/15_ast_torch_loop.cpp)
+  target_link_libraries(15_ast_torch_loop PRIVATE et ${ET_TORCH_LIB})
+  target_compile_definitions(15_ast_torch_loop PRIVATE ET_WITH_TORCH)
+  target_compile_features(15_ast_torch_loop PRIVATE cxx_std_17)
 endif()
+
+## Torch example already built above; no need to duplicate under tests
 
 # ------------------------
 # Tests (assert-based + CTest)
@@ -112,6 +177,11 @@ if(BUILD_TESTING)
   target_link_libraries(et_tests_rewrite_nested_large PRIVATE et)
   add_test(NAME et_rewrite_nested_large COMMAND et_tests_rewrite_nested_large)
 
+  # AST-native rewrite sanity
+  add_executable(et_tests_rewrite_ast tests/test_rewrite_ast.cpp)
+  target_link_libraries(et_tests_rewrite_ast PRIVATE et)
+  add_test(NAME et_rewrite_ast COMMAND et_tests_rewrite_ast)
+
   add_executable(et_tests_poly_factor tests/test_poly_factor.cpp)
   target_link_libraries(et_tests_poly_factor PRIVATE et)
   add_test(NAME et_poly_factor COMMAND et_tests_poly_factor)
@@ -123,6 +193,25 @@ if(BUILD_TESTING)
   add_executable(et_tests_compile_hash_cse tests/test_compile_hash_cse.cpp)
   target_link_libraries(et_tests_compile_hash_cse PRIVATE et)
   add_test(NAME et_compile_hash_cse COMMAND et_tests_compile_hash_cse)
+
+  add_executable(et_tests_compile_hash_cse_ast tests/test_compile_hash_cse_ast.cpp)
+  target_link_libraries(et_tests_compile_hash_cse_ast PRIVATE et)
+  add_test(NAME et_compile_hash_cse_ast COMMAND et_tests_compile_hash_cse_ast)
+
+  add_executable(et_tests_compile_cse_ast tests/test_compile_cse_ast.cpp)
+  target_link_libraries(et_tests_compile_cse_ast PRIVATE et)
+  add_test(NAME et_compile_cse_ast COMMAND et_tests_compile_cse_ast)
+
+  # Extra loop coverage tests
+  add_executable(et_tests_runtime_to_et_loops tests/test_runtime_to_et_loops.cpp)
+  target_link_libraries(et_tests_runtime_to_et_loops PRIVATE et)
+  add_test(NAME et_runtime_to_et_loops COMMAND et_tests_runtime_to_et_loops)
+
+  add_executable(et_tests_compile_hash_cse_loops tests/test_compile_hash_cse_loops.cpp)
+  target_link_libraries(et_tests_compile_hash_cse_loops PRIVATE et)
+  add_test(NAME et_compile_hash_cse_loops COMMAND et_tests_compile_hash_cse_loops)
+
+  
 
   add_executable(et_tests_compile_runtime_var_indices tests/test_compile_runtime_var_indices.cpp)
   target_link_libraries(et_tests_compile_runtime_var_indices PRIVATE et)
@@ -148,14 +237,97 @@ if(BUILD_TESTING)
   target_link_libraries(et_tests_denormalize_multi_sub PRIVATE et)
   add_test(NAME et_denormalize_multi_sub COMMAND et_tests_denormalize_multi_sub)
 
-  if(ET_WITH_TORCH AND ET_BUILD_TORCH_TESTS)
-    find_package(Torch REQUIRED)
-    add_executable(et_torch_tests tests/test_torch.cpp)
-    target_link_libraries(et_torch_tests PRIVATE et ${TORCH_LIBRARIES})
-    target_compile_definitions(et_torch_tests PRIVATE ET_WITH_TORCH)
-    target_compile_features(et_torch_tests PRIVATE cxx_std_17)
-    add_test(NAME et_torch COMMAND et_torch_tests)
+  # New ForN loop test
+  add_executable(et_tests_loop_forn tests/test_loop_forn.cpp)
+  target_link_libraries(et_tests_loop_forn PRIVATE et)
+  add_test(NAME et_loop_forn COMMAND et_tests_loop_forn)
+
+  add_executable(et_tests_loop_forn_multi tests/test_loop_forn_multi.cpp)
+  target_link_libraries(et_tests_loop_forn_multi PRIVATE et)
+  add_test(NAME et_loop_forn_multi COMMAND et_tests_loop_forn_multi)
+
+  # Tape VJP through loops (limited to init-state adjoints)
+  add_executable(et_tests_tape_loop_vjp tests/test_tape_loop_vjp.cpp)
+  target_link_libraries(et_tests_tape_loop_vjp PRIVATE et)
+  add_test(NAME et_tape_loop_vjp COMMAND et_tests_tape_loop_vjp)
+
+  # Removed legacy symbolic loop AD tests
+
+  if(ET_BUILD_CONTROL_FLOW_TESTS)
+    add_executable(et_tests_control_flow tests/test_control_flow.cpp)
+    target_link_libraries(et_tests_control_flow PRIVATE et)
+    target_compile_definitions(et_tests_control_flow PRIVATE ET_ENABLE_CONTROL_FLOW)
+    add_test(NAME et_control_flow COMMAND et_tests_control_flow)
   endif()
+
+  # Control flow coverage: If/Select eval + gradients
+  add_executable(et_tests_if_select_eval tests/test_if_select_eval.cpp)
+  target_link_libraries(et_tests_if_select_eval PRIVATE et)
+  add_test(NAME et_if_select_eval COMMAND et_tests_if_select_eval)
+
+  add_executable(et_tests_if_select_grad tests/test_if_select_grad.cpp)
+  target_link_libraries(et_tests_if_select_grad PRIVATE et)
+  add_test(NAME et_if_select_grad COMMAND et_tests_if_select_grad)
+
+  # Loop body variant with If
+  add_executable(et_tests_loop_body_if tests/test_loop_body_if.cpp)
+  target_link_libraries(et_tests_loop_body_if PRIVATE et)
+  add_test(NAME et_loop_body_if COMMAND et_tests_loop_body_if)
+
+if(ET_WITH_TORCH AND ET_BUILD_TORCH_TESTS)
+  find_package(Torch REQUIRED)
+  if(APPLE)
+    if(NOT DEFINED TORCH_INSTALL_PREFIX)
+      get_filename_component(_torch_cmake_dir "${Torch_DIR}" DIRECTORY)
+      get_filename_component(_torch_lib_dir "${_torch_cmake_dir}" DIRECTORY)
+      set(_torch_rpath "${_torch_lib_dir}")
+    else()
+      set(_torch_rpath "${TORCH_INSTALL_PREFIX}/lib")
+    endif()
+    set(CMAKE_BUILD_RPATH "${_torch_rpath};${CMAKE_BUILD_RPATH}")
+    set(CMAKE_INSTALL_RPATH "${_torch_rpath};${CMAKE_INSTALL_RPATH}")
+  endif()
+  add_executable(et_torch_tests tests/test_torch.cpp)
+  if(TARGET Torch::Torch)
+    target_link_libraries(et_torch_tests PRIVATE et Torch::Torch)
+  else()
+    target_link_libraries(et_torch_tests PRIVATE et ${TORCH_LIBRARIES})
+  endif()
+  target_compile_definitions(et_torch_tests PRIVATE ET_WITH_TORCH)
+  target_compile_features(et_torch_tests PRIVATE cxx_std_17)
+  add_test(NAME et_torch COMMAND et_torch_tests)
+
+  # Control-flow Torch-gated tests
+  add_executable(et_torch_cf_tests tests/test_torch_control_flow.cpp)
+  if(TARGET Torch::Torch)
+    target_link_libraries(et_torch_cf_tests PRIVATE et Torch::Torch)
+  else()
+    target_link_libraries(et_torch_cf_tests PRIVATE et ${TORCH_LIBRARIES})
+  endif()
+  target_compile_definitions(et_torch_cf_tests PRIVATE ET_WITH_TORCH ET_ENABLE_CONTROL_FLOW)
+  target_compile_features(et_torch_cf_tests PRIVATE cxx_std_17)
+  add_test(NAME et_torch_cf COMMAND et_torch_cf_tests)
+
+  add_executable(et_torch_select_exec tests/test_torch_select_exec.cpp)
+  if(TARGET Torch::Torch)
+    target_link_libraries(et_torch_select_exec PRIVATE et Torch::Torch)
+  else()
+    target_link_libraries(et_torch_select_exec PRIVATE et ${TORCH_LIBRARIES})
+  endif()
+  target_compile_definitions(et_torch_select_exec PRIVATE ET_WITH_TORCH ET_ENABLE_CONTROL_FLOW)
+  target_compile_features(et_torch_select_exec PRIVATE cxx_std_17)
+  add_test(NAME et_torch_select_exec COMMAND et_torch_select_exec)
+
+  add_executable(et_torch_loop tests/test_torch_loop.cpp)
+  if(TARGET Torch::Torch)
+    target_link_libraries(et_torch_loop PRIVATE et Torch::Torch)
+  else()
+    target_link_libraries(et_torch_loop PRIVATE et ${TORCH_LIBRARIES})
+  endif()
+  target_compile_definitions(et_torch_loop PRIVATE ET_WITH_TORCH ET_ENABLE_CONTROL_FLOW)
+  target_compile_features(et_torch_loop PRIVATE cxx_std_17)
+  add_test(NAME et_torch_loop COMMAND et_torch_loop)
+endif()
 endif()
 
 # ------------------------

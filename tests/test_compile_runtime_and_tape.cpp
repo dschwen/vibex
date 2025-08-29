@@ -2,9 +2,8 @@
 #include <vector>
 #include <cmath>
 
-#include "et/expr.hpp"
-#include "et/runtime_ast.hpp"
-#include "et/compile_runtime.hpp"
+#include "et/ast.hpp"
+#include "et/compile.hpp"
 #include "et/tape_backend.hpp"
 
 using namespace et;
@@ -14,41 +13,39 @@ static bool approx(double a, double b, double eps = 1e-10) {
 }
 
 int main() {
-  auto [x,y] = Vars<double,2>();
+  auto x = var(0), y = var(1);
 
-  // Build an ET with a variety of ops to exercise compile_runtime and tape backend
-  auto f = pow(sin(x) + cos(y), lit(2.0))
-         + log(exp(x*y))
+  // Build an AST with a variety of ops to exercise AST->Tape lowering
+  Expr f = pow(sin(x) + cos(y), lit(2.0))
+         + log(exp(x * y))
          + sqrt(x + lit(3.0))
          + tanh(-y)
          + (x / (y + lit(2.0)));
 
-  // ET -> runtime
-  RGraph g = compile_to_runtime(f);
-
-  // runtime -> Tape via compile_runtime
+  // AST -> Tape via compile_runtime
   TapeBackend tb(2);
-  int out = compile_runtime(g, tb);
+  int out = compile_runtime(f, tb);
   tb.tape.output_id = out;
 
-  // Compare forward eval against runtime eval
+  // Compare forward eval against AST eval
   std::vector<double> pt = {0.7, 1.3};
-  double v_rt = eval(g, pt);
+  double v_ast = eval(f, pt);
   double v_tp = tb.tape.forward(pt);
-  assert(approx(v_rt, v_tp));
+  assert(approx(v_ast, v_tp));
 
-  // Compare gradient vs. ET differentiation at a safe point (avoid domain issues)
-  // Compute ET grads
-  auto dfx = diff(f, x);
-  auto dfy = diff(f, y);
-  double gx = dfx(pt[0], pt[1]);
-  double gy = dfy(pt[0], pt[1]);
-
+  // Compare gradient vs. finite differences (avoid domain issues)
   auto grad = tb.tape.backward(pt);
   assert(grad.size() >= 2);
-  assert(approx(gx, grad[0]));
-  assert(approx(gy, grad[1]));
+  auto fd = [&](std::size_t idx){
+    auto p1 = pt, p2 = pt; const double h = 1e-6;
+    p1[idx]+=h; p2[idx]-=h;
+    double f1 = eval(f, p1); double f2 = eval(f, p2);
+    return (f1 - f2) / (2*h);
+  };
+  double gx = fd(0);
+  double gy = fd(1);
+  assert(approx(gx, grad[0], 1e-6));
+  assert(approx(gy, grad[1], 1e-6));
 
   return 0;
 }
-
