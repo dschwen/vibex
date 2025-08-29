@@ -244,7 +244,7 @@ Scope Check
 Build Flags & Defaults
 - `ET_ENABLE_CONTROL_FLOW` (default ON via `et` interface target): enables If/Select and comparison operators throughout the project. Downstreams can opt out by configuring CMake with `-DET_ENABLE_CONTROL_FLOW=OFF`.
 - `ET_WITH_TORCH`: required to include and build the Torch backend. Keep it OFF if libtorch is not available; turn it ON to enable Torch examples/tests.
-- `ET_TORCH_ENABLE_MODULE_WRAPPER`: enables a convenience wrapper that constructs a TorchScript `Module` (`make_script_module`) and a direct callable (`make_torch_method_runner`).
+Torch integration compiles AST directly to `torch::jit::Graph` via `TorchJITBackend`.
   - Version guard: the wrapper is compiled only when Torch >= 2.3 (`ET_TORCH_MODULE_WRAPPER_AVAILABLE` is defined). Example 11 enables this by default when Torch is present.
 - `ET_BUILD_CONTROL_FLOW_EXAMPLE` (default ON): builds example 10 (If/Select on runtime evaluator).
 - `ET_BUILD_TORCH_EXAMPLES` / `ET_BUILD_TORCH_TESTS`: control Torch example/test targets; as a convenience, example 11 is also built when Torch tests are enabled.

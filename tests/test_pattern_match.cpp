@@ -1,8 +1,8 @@
 #include <cassert>
 #include <unordered_map>
 
-#include "et/expr.hpp"
-#include "et/runtime_ast.hpp"
+#include "et/ast.hpp"
+#include "et/ast_to_runtime.hpp"
 #include "et/normalize.hpp"
 #include "et/pattern.hpp"
 #include "et/match.hpp"
@@ -12,9 +12,9 @@ using namespace et;
 int main() {
   using namespace et::pat;
   {
-    auto [x] = Vars<double,1>();
-    auto e = sin(x)*sin(x) + cos(x)*cos(x);
-    RGraph g = compile_to_runtime(e);
+    auto x = var(0);
+    Expr e = sin(x)*sin(x) + cos(x)*cos(x);
+    RGraph g = ast_to_rgraph(e);
     RGraph gn = normalize(g);
 
     // Pattern: sin(P1)*sin(P1) + cos(P1)*cos(P1)
@@ -30,9 +30,9 @@ int main() {
 
   {
     // Mismatch case: different placeholder targets must fail
-    auto [x,y] = Vars<double,2>();
-    auto e = sin(x)*sin(x) + cos(y)*cos(y);
-    RGraph g = compile_to_runtime(e);
+    auto x = var(0), y = var(1);
+    Expr e = sin(x)*sin(x) + cos(y)*cos(y);
+    RGraph g = ast_to_rgraph(e);
     RGraph gn = normalize(g);
     Pattern p = (sin(P(1))*sin(P(1))) + (cos(P(1))*cos(P(1)));
     Bindings b; MultiBindings mb;
@@ -42,9 +42,9 @@ int main() {
 
   {
     // AC matching inside mul: sin(P1)*sin(P1) should fail on sin(x)*sin(y)
-    auto [x,y] = Vars<double,2>();
-    auto e = sin(x)*sin(y);
-    RGraph g = compile_to_runtime(e);
+    auto x = var(0), y = var(1);
+    Expr e = sin(x)*sin(y);
+    RGraph g = ast_to_rgraph(e);
     RGraph gn = normalize(g);
     Pattern p = sin(P(1))*sin(P(1));
     Bindings b; MultiBindings mb;

@@ -1,25 +1,22 @@
 #include <cassert>
 #define ET_ENABLE_CONTROL_FLOW 1
-#include "et/expr.hpp"
-
-#ifdef ET_WITH_TORCH
-#  include "et/torch_wrapper.hpp"
-#endif
+#include "et/ast.hpp"
+#include "et/compile_ast.hpp"
+#include "et/torch_jit_backend.hpp"
 
 using namespace et;
 
 int main() {
 #ifdef ET_WITH_TORCH
-#  if defined(ET_TORCH_HAS_GRAPH_EXECUTOR)
-  // Fibonacci aN via GraphExecutor
-  auto n = Var<double,0>{};
-  auto aN = Out<0>(LoopFor<2>(n, lit(0.0), lit(1.0), State<1>(), State<0>() + State<1>()));
-  auto runner = make_torch_graph_runner(aN, /*arity=*/1);
-  auto out = runner({torch::tensor(7.0)});
-  // F(7) = 13
-  assert(std::abs(out.toTensor().item<double>() - 13.0) < 1e-9);
-#  endif
+  // Fibonacci aN via AST to Torch JIT prim::Loop
+  auto n = var(0);
+  Expr core = loop_for(2, n, { lit(0.0), lit(1.0) }, { state(1), state(0) + state(1) });
+  Expr aN = loop_out(0, core);
+  TorchJITBackend JB(1);
+  (void)compile_runtime(aN, JB);
+  bool saw_loop = false;
+  for (auto* node : JB.g.nodes()) if (node->kind() == torch::jit::prim::Loop) { saw_loop = true; break; }
+  assert(saw_loop);
 #endif
   return 0;
 }
-

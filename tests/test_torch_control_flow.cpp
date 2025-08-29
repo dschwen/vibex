@@ -1,7 +1,8 @@
 #include <cassert>
 
 #define ET_ENABLE_CONTROL_FLOW 1
-#include "et/expr.hpp"
+#include "et/ast.hpp"
+#include "et/compile_ast.hpp"
 #include "et/torch_jit_backend.hpp"
 
 using namespace et;
@@ -9,12 +10,12 @@ using namespace et;
 int main() {
 #ifdef ET_WITH_TORCH
   // Build Select with a comparison mask: should lower to aten::gt + aten::where
-  auto [x] = Vars<double,1>();
-  auto mask = x > lit(0.0);
-  auto expr = Select(mask, x + lit(1.0), x - lit(1.0));
+  auto x = var(0);
+  Expr mask = x > lit(0.0);
+  Expr expr = Select(mask, x + lit(1.0), x - lit(1.0));
 
   TorchJITBackend tb1(1);
-  (void)compile(expr, tb1);
+  (void)compile_runtime(expr, tb1);
 
   bool saw_where = false, saw_gt = false;
   for (auto* n : tb1.g.nodes()) {
@@ -25,9 +26,9 @@ int main() {
   assert(saw_where && saw_gt);
 
   // Build logical not of equality: should lower to aten::eq + aten::logical_not
-  auto neq = !(x == lit(0.0));
+  Expr neq = !(x == lit(0.0));
   TorchJITBackend tb2(1);
-  (void)compile(neq, tb2);
+  (void)compile_runtime(neq, tb2);
   bool saw_eq = false, saw_not = false;
   for (auto* n : tb2.g.nodes()) {
     auto k = n->kind();
@@ -38,4 +39,3 @@ int main() {
 #endif
   return 0;
 }
-

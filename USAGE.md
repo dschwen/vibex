@@ -83,28 +83,23 @@ auto gx_val = gx(2.4, 6, 1.1);
 
 ---
 
-## 3) Simplification
+## 3) Simplification (AST)
 
-The `simplify` pass performs:
-- recursive simplification of children
-- **pure constant folding** (operations where both sides are `Const<T>` or unary const)
+Use the AST normalization and rewrite passes:
+- `normalize(e)`: recursively normalizes and folds constants (`normalize_ast.hpp`).
+- `rewrite_fixed_point(e)`: applies AST-native algebraic rules to a fixed point (`rewrite_ast.hpp`).
 
-We intentionally **don’t** do value-dependent single-sided rewrites (like `x * 1 → x`) because that introduces mixed return types with `auto` and breaks deduction. You get predictable, type-stable simplifications:
-
-```cpp
-auto g = simplify(dfx);      // returns an ET node (possibly with Const folded)
-auto v = g(2.4, 6, 1.1);
-```
-
-For aggressive canonicalization and algebraic identities, use the rewrite engine:
+Example:
 
 ```cpp
-auto r = rewrite(f, default_rules());
-```
+#include "et/ast.hpp"
+#include "et/normalize_ast.hpp"
+#include "et/rewrite_ast.hpp"
 
-It normalizes associative/commutative ops and applies pattern-based rules
-like neutral elements and trig identities (see `DESIGN_REWRITE.md` and
-`examples/08_rewrite_rules.cpp`).
+auto x = et::var(0), y = et::var(1);
+et::Expr f = et::sin(x)*y + et::lit(0.0);
+et::Expr fs = et::rewrite_fixed_point(f); // folds +0 and normalizes
+```
 
 ---
 
@@ -298,31 +293,20 @@ Torch lowering (when enabled)
 - `LoopFor` lowers to `prim::Loop` with carried dependencies; `Out<J>` lowers to indexing into the loop’s carried outputs.
 - `Iter()` maps to the loop’s iteration index (cast to a Tensor); `State<I>()` maps to the I-th carried block input.
 
-### Torch convenience wrapper
-To hide boilerplate when exporting a single-graph function, use the thin wrapper when Torch is enabled:
+### Torch JIT (AST path)
+Lower an AST directly to a TorchScript graph using `TorchJITBackend`:
 
 ```cpp
 #ifdef ET_WITH_TORCH
-#  include "et/torch_wrapper.hpp"
-  auto [x] = Vars<double,1>();
-  auto expr = Select(x > lit(0.0), x + lit(1.0), x - lit(1.0));
-  auto tc = compile_to_torch(expr, /*arity=*/1);
-  tc.print(std::cout);        // pretty-print the graph
-  auto& g = tc.graph();       // access to underlying torch::jit::Graph if needed
-#  if defined(ET_TORCH_ENABLE_MODULE_WRAPPER) && defined(ET_TORCH_MODULE_WRAPPER_AVAILABLE)
-  // Optional: create a ScriptModule and run forward
-  auto mod = make_script_module(tc, "forward");
-  auto out = mod.get_method("forward")({torch::tensor(1.0)});
-  std::cout << out.toTensor() << "\n";
-  // Or, get a direct callable runner without touching Module/Method
-  auto runner = make_torch_method_runner(expr, /*arity=*/1);
-  auto out2 = runner({torch::tensor(1.0)});
-  std::cout << out2.toTensor() << "\n";
-#  elif defined(ET_TORCH_HAS_GRAPH_EXECUTOR)
-  // Fallback: run via GraphExecutor (no Module)
-  auto ge_runner = make_torch_graph_runner(expr, /*arity=*/1);
-  std::cout << ge_runner({torch::tensor(1.0)}).toTensor() << "\n";
-#  endif
+#  include "et/ast.hpp"
+#  include "et/compile_ast.hpp"
+#  include "et/torch_jit_backend.hpp"
+  auto x = et::var(0);
+  et::Expr expr = et::Select(x > et::lit(0.0), x + et::lit(1.0), x - et::lit(1.0));
+  et::TorchJITBackend JB(1);
+  auto out = et::compile_runtime(expr, JB);
+  JB.g.registerOutput(out);
+  std::cout << JB.g.toString() << "\n";
 #endif
 ```
 
@@ -371,26 +355,10 @@ Update your backends’ `emitApply` to recognize `SoftplusOp`.
 
 ## 7) Rewrite and Optimize
 
-The rewrite engine works over a normalized runtime AST with associative/commutative (AC) flattening and sorting for `Add`/`Mul`. For sum-like uniformity, `Sub(a,b)` is normalized to `Add(a, Neg(b))`. After rewriting to a fixed point, you can denormalize back to `Sub` in the two-term case for prettier output.
+The AST rewrite operates over a normalized AST (AC flattening/sorting for `Add`/`Mul`). For sum-like uniformity, `Sub(a,b)` is normalized to `Add(a, Neg(b))` internally.
 
-- Rules: see `include/et/rules_default.hpp`.
-- Fixed-point rewrite: `rewrite_fixed_point(graph, rules)` or `rewrite_expr(expr, rules)`.
-- Convenience: `optimize(expr, rules)` or `optimize(expr)` (uses default rules).
-  - Flow: normalize → rewrite* → normalize → denormalize_sub.
-  - Examples: `examples/08_rewrite_rules.cpp` (optimize), `examples/09_rewrite_nested.cpp` (per-pass + Pretty).
-
-Quick example:
-
-```cpp
-#include "et/optimize.hpp"
-
-auto [x] = et::Vars<double,1>();
-auto e = et::sin(x)*et::sin(x) + et::cos(x)*et::cos(x) + (et::lit(2.0)*x + et::lit(3.0)*x);
-
-// optimize() runs: normalize → rewrite* → normalize → denormalize_sub
-et::RGraph g = et::optimize(e);
-std::cout << r_to_string(g) << "\n"; // Already pretty (Sub restored where applicable)
-```
+- Fixed-point rewrite: `et::rewrite_fixed_point(expr)` (built-in rules for algebraic identities such as log∘exp, trig simplifications, like-term merging, factoring, etc.).
+- Examples: `examples/08_rewrite_rules.cpp` and `examples/09_rewrite_nested.cpp`.
 
 ## 8) Practical tips & gotchas
 
@@ -406,21 +374,21 @@ std::cout << r_to_string(g) << "\n"; // Already pretty (Sub restored where appli
 
 ---
 
-## 9) Tiny end-to-end example
+## 9) Tiny end-to-end example (AST)
 
 ```cpp
 #include "et/ast.hpp"
-#include "et/tape_backend.hpp"
 #include "et/compile_hash_cse_ast.hpp"
+#include "et/tape_backend.hpp"
 
 using namespace et;
 
 int main() {
-  auto x = var(0), y = var(1), z = var(2);
-  Expr f = sin(x) * y + z * z;
+  auto x = et::var(0), y = et::var(1), z = et::var(2);
+  et::Expr f = et::sin(x) * y + z * z;
 
-  TapeBackend tb(3);
-  int root = compile_hash_cse_ast(f, tb);
+  et::TapeBackend tb(3);
+  int root = et::compile_hash_cse_ast(f, tb);
   tb.tape.output_id = root;
 
   std::vector<double> in = {2.4, 6.0, 1.1};

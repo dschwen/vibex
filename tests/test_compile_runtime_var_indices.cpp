@@ -1,22 +1,20 @@
 #include <cassert>
 #include <vector>
 
-#include "et/runtime_ast.hpp"
-#include "et/compile_runtime.hpp"
+#include "et/ast.hpp"
+#include "et/compile_ast.hpp"
 #include "et/tape_backend.hpp"
 
 using namespace et;
 
 int main() {
-  // Manually build a small runtime graph: Add(Var(9), Var(12))
-  RGraph g;
-  RNode v9; v9.kind = NodeKind::Var; v9.var_index = 9; int id9 = g.add(std::move(v9));
-  RNode v12; v12.kind = NodeKind::Var; v12.var_index = 12; int id12 = g.add(std::move(v12));
-  RNode add; add.kind = NodeKind::Add; add.ch = {id9, id12}; int root = g.add(std::move(add));
-  g.root = root;
+  // Build a small AST: Add(Var(9), Var(12)) and compile to Tape
+  Expr v9 = var(9);
+  Expr v12 = var(12);
+  Expr e = v9 + v12;
 
   TapeBackend tb(2);
-  int out = compile_runtime(g, tb);
+  int out = compile_runtime(e, tb);
   tb.tape.output_id = out;
 
   // Expect two Var nodes emitted with indices 9 and 12 (no fallback)
