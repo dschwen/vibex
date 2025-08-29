@@ -1,49 +1,33 @@
+// AST shape/properties test (migrated from runtime graph shape test)
 #include <cassert>
 #include <vector>
-
-#include "et/expr.hpp"
-#include "et/runtime_ast.hpp"
+#include <memory>
+#include "et/ast.hpp"
 
 using namespace et;
 
-static bool is_kind(const RGraph& g, int id, NodeKind k) { return g.nodes[id].kind == k; }
-
 int main() {
-  auto [x,y,z] = Vars<double,3>();
-  auto f = sin(x)*y + z*z;
+  auto x = var(0), y = var(1), z = var(2);
+  Expr f = sin(x) * y + z * z;
 
-  RGraph g = compile_to_runtime(f);
-  assert(g.root >= 0);
-  assert(is_kind(g, g.root, NodeKind::Add));
-  const RNode& add = g.nodes[g.root];
-  assert(add.ch.size() == 2);
+  // Check AST root is Add and children shapes
+  auto add = std::dynamic_pointer_cast<AddNode>(f.n);
+  assert(add);
+  auto mul1 = std::dynamic_pointer_cast<MulNode>(add->a);
+  auto mul2 = std::dynamic_pointer_cast<MulNode>(add->b);
+  assert(mul1 && mul2);
 
-  int a = add.ch[0];
-  int b = add.ch[1];
-  assert(is_kind(g, a, NodeKind::Mul));
-  assert(is_kind(g, b, NodeKind::Mul));
+  // sin(x) * y
+  auto sinx = std::dynamic_pointer_cast<SinNode>(mul1->a);
+  auto vy   = std::dynamic_pointer_cast<VarNode>(mul1->b);
+  assert(sinx && vy && vy->index == 1);
+  auto vx_in_sin = std::dynamic_pointer_cast<VarNode>(sinx->a);
+  assert(vx_in_sin && vx_in_sin->index == 0);
 
-  const RNode& mul1 = g.nodes[a];
-  const RNode& mul2 = g.nodes[b];
-  assert(mul1.ch.size() == 2);
-  assert(mul2.ch.size() == 2);
-
-  // Check sin(x) * y shape
-  int m1l = mul1.ch[0];
-  int m1r = mul1.ch[1];
-  assert(is_kind(g, m1l, NodeKind::Sin));
-  assert(is_kind(g, m1r, NodeKind::Var));
-  assert(g.nodes[m1r].var_index == 1); // y
-  assert(g.nodes[g.nodes[m1l].ch[0]].var_index == 0); // x
-
-  // Check z * z
-  int m2l = mul2.ch[0];
-  int m2r = mul2.ch[1];
-  assert(is_kind(g, m2l, NodeKind::Var));
-  assert(is_kind(g, m2r, NodeKind::Var));
-  assert(g.nodes[m2l].var_index == 2);
-  assert(g.nodes[m2r].var_index == 2);
+  // z * z
+  auto vz1 = std::dynamic_pointer_cast<VarNode>(mul2->a);
+  auto vz2 = std::dynamic_pointer_cast<VarNode>(mul2->b);
+  assert(vz1 && vz2 && vz1->index == 2 && vz2->index == 2);
 
   return 0;
 }
-

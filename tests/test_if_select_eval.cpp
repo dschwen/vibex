@@ -1,25 +1,26 @@
 #include <cassert>
-#define ET_ENABLE_CONTROL_FLOW 1
-#include "et/expr.hpp"
+#include <cmath>
+#include <vector>
+#include "et/ast.hpp"
 
 using namespace et;
 
 int main() {
-  auto [x] = Vars<double,1>();
+  auto x = var(0);
 
   // If: piecewise quadratic/linear
-  auto y_if = If(x > lit(0.0), x * x, x);
-  assert(y_if(2.0) == 4.0);
-  assert(y_if(-3.0) == -3.0);
+  Expr y_if = If(x > lit(0.0), x * x, x);
+  assert(std::abs(eval(y_if, {2.0}) - 4.0) < 1e-12);
+  assert(std::abs(eval(y_if, {-3.0}) + 3.0) < 1e-12);
 
   // Select: abs(x) using where
-  auto y_sel = Select(x >= lit(0.0), x, -x);
-  assert(y_sel(3.0) == 3.0);
-  assert(y_sel(-2.5) == 2.5);
+  Expr y_sel = Select(x >= lit(0.0), x, -x);
+  assert(std::abs(eval(y_sel, {3.0}) - 3.0) < 1e-12);
+  assert(std::abs(eval(y_sel, {-2.5}) - 2.5) < 1e-12);
 
   // Nested: If over Select
-  auto z = If(x < lit(1.0), y_sel, x + lit(1.0));
-  assert(std::abs(z(-5.0) - 5.0) < 1e-12);
-  assert(std::abs(z(2.0) - 3.0) < 1e-12);
+  Expr z = If(x < lit(1.0), y_sel, x + lit(1.0));
+  assert(std::abs(eval(z, {-5.0}) - 5.0) < 1e-12);
+  assert(std::abs(eval(z, {2.0}) - 3.0) < 1e-12);
   return 0;
 }

@@ -74,6 +74,10 @@ target_link_libraries(12_loop_forn PRIVATE et)
 add_executable(13_loop_fib examples/13_loop_fib.cpp)
 target_link_libraries(13_loop_fib PRIVATE et)
 
+# AST sanity example (runtime AST + Tape)
+add_executable(14_ast_sanity examples/14_ast_sanity.cpp)
+target_link_libraries(14_ast_sanity PRIVATE et)
+
 if(ET_WITH_TORCH)
   find_package(Torch REQUIRED)
 
@@ -171,6 +175,11 @@ if(BUILD_TESTING)
   target_link_libraries(et_tests_rewrite_nested_large PRIVATE et)
   add_test(NAME et_rewrite_nested_large COMMAND et_tests_rewrite_nested_large)
 
+  # AST-native rewrite sanity
+  add_executable(et_tests_rewrite_ast tests/test_rewrite_ast.cpp)
+  target_link_libraries(et_tests_rewrite_ast PRIVATE et)
+  add_test(NAME et_rewrite_ast COMMAND et_tests_rewrite_ast)
+
   add_executable(et_tests_poly_factor tests/test_poly_factor.cpp)
   target_link_libraries(et_tests_poly_factor PRIVATE et)
   add_test(NAME et_poly_factor COMMAND et_tests_poly_factor)
@@ -182,6 +191,14 @@ if(BUILD_TESTING)
   add_executable(et_tests_compile_hash_cse tests/test_compile_hash_cse.cpp)
   target_link_libraries(et_tests_compile_hash_cse PRIVATE et)
   add_test(NAME et_compile_hash_cse COMMAND et_tests_compile_hash_cse)
+
+  add_executable(et_tests_compile_hash_cse_ast tests/test_compile_hash_cse_ast.cpp)
+  target_link_libraries(et_tests_compile_hash_cse_ast PRIVATE et)
+  add_test(NAME et_compile_hash_cse_ast COMMAND et_tests_compile_hash_cse_ast)
+
+  add_executable(et_tests_compile_cse_ast tests/test_compile_cse_ast.cpp)
+  target_link_libraries(et_tests_compile_cse_ast PRIVATE et)
+  add_test(NAME et_compile_cse_ast COMMAND et_tests_compile_cse_ast)
 
   # Extra loop coverage tests
   add_executable(et_tests_runtime_to_et_loops tests/test_runtime_to_et_loops.cpp)

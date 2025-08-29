@@ -430,10 +430,22 @@ struct TapeBackend {
     tape.nodes.push_back(n);
     return (int)tape.nodes.size() - 1;
   }
+  // Non-templated convenience
+  result_type emitVar(std::size_t idx) {
+    Tape::Node n; n.kind = Tape::KVar; n.var_index = idx;
+    tape.nodes.push_back(n);
+    return (int)tape.nodes.size() - 1;
+  }
 
   template <class T>
   result_type emitConst(Const<T> c) {
     Tape::Node n; n.kind = Tape::KConst; n.c = static_cast<double>(c.value);
+    tape.nodes.push_back(n);
+    return (int)tape.nodes.size() - 1;
+  }
+  // Non-templated convenience
+  result_type emitConst(double v) {
+    Tape::Node n; n.kind = Tape::KConst; n.c = v;
     tape.nodes.push_back(n);
     return (int)tape.nodes.size() - 1;
   }
@@ -486,6 +498,15 @@ struct TapeBackend {
     return (int)tape.nodes.size() - 1;
   }
 
+  // Non-templated unary emitters
+  result_type emitNeg(int a) { Tape::Node n; n.kind = Tape::KNeg; n.a = a; tape.nodes.push_back(n); return (int)tape.nodes.size()-1; }
+  result_type emitSin(int a) { Tape::Node n; n.kind = Tape::KSin; n.a = a; tape.nodes.push_back(n); return (int)tape.nodes.size()-1; }
+  result_type emitCos(int a) { Tape::Node n; n.kind = Tape::KCos; n.a = a; tape.nodes.push_back(n); return (int)tape.nodes.size()-1; }
+  result_type emitExp(int a) { Tape::Node n; n.kind = Tape::KExp; n.a = a; tape.nodes.push_back(n); return (int)tape.nodes.size()-1; }
+  result_type emitLog(int a) { Tape::Node n; n.kind = Tape::KLog; n.a = a; tape.nodes.push_back(n); return (int)tape.nodes.size()-1; }
+  result_type emitSqrt(int a){ Tape::Node n; n.kind = Tape::KSqrt;n.a = a; tape.nodes.push_back(n); return (int)tape.nodes.size()-1; }
+  result_type emitTanh(int a){ Tape::Node n; n.kind = Tape::KTanh;n.a = a; tape.nodes.push_back(n); return (int)tape.nodes.size()-1; }
+
 #ifdef ET_ENABLE_CONTROL_FLOW
   // Zero-arg emit: Iter/StateRead
   result_type emitApply(IterOp) {
@@ -518,6 +539,13 @@ struct TapeBackend {
     tape.nodes.push_back(n);
     return (int)tape.nodes.size() - 1;
   }
+
+  // Non-templated binary emitters
+  result_type emitAdd(int a, int b) { Tape::Node n; n.kind = Tape::KAdd; n.a=a; n.b=b; tape.nodes.push_back(n); return (int)tape.nodes.size()-1; }
+  result_type emitSub(int a, int b) { Tape::Node n; n.kind = Tape::KSub; n.a=a; n.b=b; tape.nodes.push_back(n); return (int)tape.nodes.size()-1; }
+  result_type emitMul(int a, int b) { Tape::Node n; n.kind = Tape::KMul; n.a=a; n.b=b; tape.nodes.push_back(n); return (int)tape.nodes.size()-1; }
+  result_type emitDiv(int a, int b) { Tape::Node n; n.kind = Tape::KDiv; n.a=a; n.b=b; tape.nodes.push_back(n); return (int)tape.nodes.size()-1; }
+  result_type emitPow(int a, int b) { Tape::Node n; n.kind = Tape::KPow; n.a=a; n.b=b; tape.nodes.push_back(n); return (int)tape.nodes.size()-1; }
 
 #ifdef ET_ENABLE_CONTROL_FLOW
   inline result_type emitApply(IfOp, int a, int b, int c) {

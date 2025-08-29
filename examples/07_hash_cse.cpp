@@ -1,18 +1,18 @@
 #include <iostream>
-#include "et/expr.hpp"
-#include "et/simplify.hpp"
+#include <vector>
+#include "et/ast.hpp"
+#include "et/compile_hash_cse_ast.hpp"
 #include "et/tape_backend.hpp"
-#include "et/compile_hash_cse.hpp"
 
 int main() {
   using namespace et;
-  auto [x,y,z] = Vars<double,3>();
+  auto x = var(0), y = var(1), z = var(2);
 
-  auto g = exp(x) * tanh(y);
-  auto f = g + log(z) + g + sqrt(z*z) + g;
+  Expr g = exp(x) * tanh(y);
+  Expr f = g + log(z) + g + sqrt(z*z) + g;
 
   TapeBackend TB(3);
-  int out_id = compile_hash_cse(f, TB);
+  int out_id = compile_hash_cse_ast(f, TB);
   TB.tape.output_id = out_id;
 
   std::vector<double> in = {1.1, 0.7, 2.5};
