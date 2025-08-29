@@ -34,7 +34,7 @@ Prefer reverse‑mode via the Tape backend at runtime. Symbolic `diff()` remains
 ## 3) Simplification (AST)
 
 Use the AST normalization and rewrite passes:
-- `normalize(e)`: recursively normalizes and folds constants (`normalize_ast.hpp`).
+- `normalize(e)`: recursively normalizes and folds constants (`normalize.hpp`).
 - `rewrite_fixed_point(e)`: applies AST-native algebraic rules to a fixed point (`rewrite_ast.hpp`).
 
 Example:

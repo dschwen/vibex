@@ -9,7 +9,7 @@ Status: Header-only, C++17, runtime AST for expression building; reverse-mode Ta
 
 - Single, simple runtime AST built via operator overloading (`et/ast.hpp`).
 - Reverse-mode AD via a compact Tape backend (`et/tape_backend.hpp`).
-- Algebraic rewrite over AST for canonicalization and simplification (`normalize_ast.hpp`, `rewrite_ast.hpp`).
+- Algebraic rewrite over AST for canonicalization and simplification (`normalize.hpp`, `rewrite_ast.hpp`).
 - Modular backends: compile AST to Tape, TorchScript JIT, or other targets via small emitters.
 - No template expression trees: evaluation and compilation happen at runtime.
 
@@ -117,4 +117,4 @@ Minimal viable support: (1)+(3). (2)+(4) improve quality (folding/simplification
 
 ## 10. Notes on Migration Completion
 
-RGraph and its bridge were fully removed. All examples/tests use AST and its backends. Pattern matching is available via `ast_pattern.hpp` + `ast_match.hpp`.
+RGraph and its bridge were fully removed. All examples/tests use AST and its backends. Pattern matching is available via `pattern.hpp` + `match.hpp`.
